@@ -36,6 +36,15 @@
 
 #include "shastina.h"
 
+#include "adsr.h"
+#include "graph.h"
+#include "instr.h"
+#include "layer.h"
+#include "seq.h"
+#include "sqwave.h"
+#include "stereo.h"
+#include "wavwrite.h"
+
 /*
  * Error codes
  * ===========
@@ -69,6 +78,16 @@
 #define ERR_BADT    (23)  /* t value is negative */
 #define ERR_BADFRAC (24)  /* Invalid fraction value */
 #define ERR_REMAIN  (25)  /* Elements remain on stack at end */
+#define ERR_BADDUR  (26)  /* Duration is less than one */
+#define ERR_LONGDUR (27)  /* Duration is too long */
+#define ERR_PITCH   (28)  /* Pitch out of range */
+#define ERR_INSTR   (29)  /* Instrument index out of range */
+#define ERR_LAYER   (30)  /* Layer index out of range */
+#define ERR_NOTES   (31)  /* Too many notes */
+#define ERR_PITCHR  (32)  /* Invalid pitch range */
+#define ERR_IRANGE  (33)  /* Invalid intensity range */
+#define ERR_GRAPH   (34)  /* Invalid graph */
+#define ERR_OUTFILE (35)  /* Can't open output file */
 
 #define ERR_SN_MIN  (500) /* Mininum error code used for Shastina */
 #define ERR_SN_MAX  (600) /* Maximum error code used for Shastina */
@@ -259,6 +278,8 @@ static STACK_REC m_stack[MAX_STACK];
  */
 
 /* Prototypes */
+static int synthesize(const char *pOutPath);
+
 static int op_lc(int32_t t, int32_t r, int *per, STACK_REC *psr);
 static int op_lr(
     int32_t     t,
@@ -322,6 +343,95 @@ static void header_config(
 static int parseInt(const char *pstr, int32_t *pv);
 static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln);
 static const char *error_string(int code);
+
+/*
+ * Perform the synthesis.
+ * 
+ * header_config() must have already been called, and the input file
+ * should be fully interpreted before calling this function.  Undefined
+ * behavior occurs if this function is called more than once.
+ * 
+ * Parameters:
+ * 
+ *   pOutPath - the output WAV file path
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if output file can't be opened
+ */
+static int synthesize(const char *pOutPath) {
+  
+  int32_t scount = 0;
+  int status = 1;
+  int wavflags = 0;
+  int32_t sqrate = 0;
+  
+  /* Check state and parameter */
+  if ((!m_init) || (pOutPath == NULL)) {
+    abort();
+  }
+  
+  /* Set WAV initialization flags and sqwave rate */
+  if (m_rate == 48000) {
+    wavflags = WAVWRITE_INIT_48000;
+    sqrate = SQWAVE_RATE_DVD;
+  
+  } else if (m_rate == 44100) {
+    wavflags = WAVWRITE_INIT_44100;
+    sqrate = SQWAVE_RATE_CD;
+  
+  } else {
+    /* Unrecognized rate */
+    abort();
+  }
+  if (m_nostereo) {
+    wavflags = wavflags | WAVWRITE_INIT_MONO;
+  } else {
+    wavflags = wavflags | WAVWRITE_INIT_STEREO;
+  }
+  
+  /* Initialize square wave module */
+  sqwave_init((double) m_sqamp, sqrate);
+  
+  /* Flatten stereo if requested */
+  if (m_nostereo) {
+    stereo_flatten();
+  }
+  
+  /* Initialize WAV writer */
+  if (!wavwrite_init(pOutPath, wavflags)) {
+    status = 0;
+  }
+  
+  /* Write silence before */
+  if (status) {
+    for(scount = 0; scount < m_frame_before; scount++) {
+      wavwrite_sample(0, 0);
+    }
+  }
+  
+  /* Sequence the music */
+  if (status) {
+    seq_play();
+  }
+  
+  /* Write silence after */
+  if (status) {
+    for(scount = 0; scount < m_frame_after; scount++) {
+      wavwrite_sample(0, 0);
+    }
+  }
+  
+  /* Close down */
+  if (status) {
+    wavwrite_close(WAVWRITE_CLOSE_NORMAL);
+  } else {
+    wavwrite_close(WAVWRITE_CLOSE_RMFILE);
+  }
+  
+  /* Return status */
+  return status;
+}
 
 /* 
  * Implementation of "lc" operation.
@@ -448,20 +558,199 @@ static int op_lr(
   return status;
 }
 
-/* @@TODO: */
+/* 
+ * Implementation of "layer" operation.
+ * 
+ * header_config() must be called before using this function.
+ * 
+ * Parameters:
+ * 
+ *   lid - the layer ID
+ * 
+ *   m - the multiplier
+ * 
+ *   c - the number of graph elements
+ * 
+ *   psa - pointer to the graph elements array
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op_layer(
           int32_t     lid,
           int32_t     m,
           int32_t     c,
     const STACK_REC * psa,
           int       * per) {
-  printf("layer %d %d %d\n", (int) lid, (int) m, (int) c);
-  return 1;
+  
+  int status = 1;
+  int32_t x = 0;
+  GRAPH_OBJ *pg = NULL;
+  
+  /* Check per and psa and state and c */
+  if ((per == NULL) || (!m_init) || (psa == NULL) || (c < 1)) {
+    abort();
+  }
+  
+  /* Range-check lid and m */
+  if ((lid < 1) || (lid > LAYER_MAXCOUNT)) {
+    status = 0;
+    *per = ERR_LAYER;
+  }
+  if (status && ((m < 0) || (m > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  
+  /* Verify that the graph element sequence is valid */
+  if (status) {
+    for(x = 0; x < c; x++) {
+      
+      /* Check that element is a graph element */
+      if ((psa[x]).ra < 0) {
+        abort();  /* shouldn't happen -- should already be checked */
+      }
+      
+      /* If this is first element, time offset must be zero */
+      if (x < 1) {
+        if ((psa[x]).val != 0) {
+          status = 0;
+          *per = ERR_GRAPH;
+        }
+      }
+      
+      /* If this is the last element, it must be a constant */
+      if (status && (x >= c - 1)) {
+        if ((psa[x]).rb >= 0) {
+          status = 0;
+          *per = ERR_GRAPH;
+        }
+      }
+      
+      /* If this is not the first element, its time offset must be
+       * greater than the previous */
+      if (status && (x > 0)) {
+        if ((psa[x]).val <= (psa[x - 1]).val) {
+          status = 0;
+          *per = ERR_GRAPH;
+        }
+      }
+      
+      /* Range-check ra and rb */
+      if (status) {
+        if (((psa[x]).ra < 0) || ((psa[x]).ra > MAX_FRAC)) {
+          abort();
+        }
+        if (((psa[x]).rb < -1) || ((psa[x]).rb > MAX_FRAC)) {
+          abort();
+        }
+      }
+      
+      /* Leave loop if error */
+      if (!status) {
+        break;
+      }
+    }
+  }
+  
+  /* Call through */
+  if (status) {
+    pg = graph_alloc(c);
+    for(x = c - 1; x >= 0; x--) {
+      graph_set(pg, x, (psa[x]).val, (psa[x]).ra, (psa[x]).rb);
+    }
+    layer_define(lid - 1, ((double) m) / 1024.0, pg);
+  }
+  
+  /* Release graph object if necessary */
+  graph_release(pg);
+  pg = NULL;
+  
+  /* Return status */
+  return status;
 }
+
+/* 
+ * Implementation of "layer_derive" operation.
+ * 
+ * header_config() must be called before using this function.
+ * 
+ * Parameters:
+ * 
+ *   lid - the target layer ID
+ * 
+ *   src - the source layer ID
+ * 
+ *   m - the multiplier
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op_derive(int32_t lid, int32_t src, int32_t m, int *per) {
-  printf("derive %d %d %d\n", (int) lid, (int) src, (int) m);
-  return 1;
+  
+  int status = 1;
+  
+  /* Check per and state */
+  if ((per == NULL) || (!m_init)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if ((lid < 1) || (lid > LAYER_MAXCOUNT)) {
+    status = 0;
+    *per = ERR_LAYER;
+  }
+  if (status && ((src < 1) || (src > LAYER_MAXCOUNT))) {
+    status = 0;
+    *per = ERR_LAYER;
+  }
+  if (status && ((m < 0) || (m > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  
+  /* Call through */
+  if (status) {
+    layer_derive(lid - 1, src - 1, ((double) m) / 1024.0);
+  }
+  
+  /* Return status */
+  return status;
 }
+
+/*
+ * Implementation of "instr" operation.
+ * 
+ * header_config() must be called before using this function.
+ * 
+ * Parameters:
+ * 
+ *   iid - the instrument ID
+ * 
+ *   i_max - the maximum intensity
+ * 
+ *   i_min - the minimum intensity
+ * 
+ *   attack - the attack duration
+ * 
+ *   decay - the decay duration
+ * 
+ *   sustain - the sustain level
+ * 
+ *   release - the release duration
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op_instr(
     int32_t   iid,
     int32_t   i_max,
@@ -471,24 +760,200 @@ static int op_instr(
     int32_t   sustain,
     int32_t   release,
     int     * per) {
-  printf("instr %d %d %d %d %d %d %d\n",
-    (int) iid, (int) i_max, (int) i_min,
-    (int) attack, (int) decay, (int) sustain,
-    (int) release);
-  return 1;
+  
+  int status = 1;
+  STEREO_POS sp;
+  ADSR_OBJ *pa = NULL;
+  
+  /* Initialize structures */
+  memset(&sp, 0, sizeof(STEREO_POS));
+  
+  /* Check per and state */
+  if ((per == NULL) || (!m_init)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if ((iid < 1) || (iid > INSTR_MAXCOUNT)) {
+    status = 0;
+    *per = ERR_INSTR;
+  }
+  if (status && ((i_max < 0) || (i_max > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  if (status && ((i_min < 0) || (i_min > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  if (status && (i_min > i_max)) {
+    status = 0;
+    *per = ERR_IRANGE;
+  }
+  if (status && ((sustain < 0) || (sustain > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  if (status && (attack < 0)) {
+    status = 0;
+    *per = ERR_BADDUR;
+  }
+  if (status && (decay < 0)) {
+    status = 0;
+    *per = ERR_BADDUR;
+  }
+  if (status && (release < 0)) {
+    status = 0;
+    *per = ERR_BADDUR;
+  }
+  
+  /* Call through */
+  if (status) {
+    pa = adsr_alloc(
+            (double) attack,
+            (double) decay,
+            ((double) sustain) / 1024.0,
+            (double) release,
+            m_rate);
+    stereo_setPos(&sp, 0);
+    instr_define(iid - 1, i_max, i_min, pa, &sp);
+  }
+  
+  /* Release object if allocated */
+  adsr_release(pa);
+  pa = NULL;
+  
+  /* Return status */
+  return status;
 }
+
+/*
+ * Implementation of "instr_dup" operation.
+ * 
+ * header_config() must be called before using this function.
+ * 
+ * Parameters:
+ * 
+ *   iid - the target instrument ID
+ * 
+ *   src - the source instrument ID
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op_idup(int32_t iid, int32_t src, int *per) {
-  printf("idup %d %d\n", (int) iid, (int) src);
-  return 1;
+  
+  int status = 1;
+  
+  /* Check per and state */
+  if ((per == NULL) || (!m_init)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if ((iid < 1) || (iid > INSTR_MAXCOUNT)) {
+    status = 0;
+    *per = ERR_INSTR;
+  }
+  if (status && ((src < 1) || (src > INSTR_MAXCOUNT))) {
+    status = 0;
+    *per = ERR_INSTR;
+  }
+  
+  /* Call through */
+  if (status) {
+    instr_dup(iid - 1, src - 1);
+  }
+  
+  /* Return status */
+  return status;
 }
+
+/*
+ * Implementation of "instr_maxmin" operation.
+ * 
+ * header_config() must be called before using this function.
+ * 
+ * Parameters:
+ * 
+ *   iid - the instrument ID
+ * 
+ *   i_max - the maximum intensity
+ * 
+ *   i_min - the minimum intensity
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op_maxmin(
     int32_t   iid,
     int32_t   i_max,
     int32_t   i_min,
     int     * per) {
-  printf("maxmin %d %d %d\n", (int) iid, (int) i_max, (int) i_min);
-  return 1;
+  
+  int status = 1;
+  
+  /* Check per and state */
+  if ((per == NULL) || (!m_init)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if ((iid < 1) || (iid > INSTR_MAXCOUNT)) {
+    status = 0;
+    *per = ERR_INSTR;
+  }
+  if (status && ((i_max < 0) || (i_max > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  if (status && ((i_min < 0) || (i_min > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  if (status && (i_min > i_max)) {
+    status = 0;
+    *per = ERR_IRANGE;
+  }
+  
+  /* Call through */
+  if (status) {
+    instr_setMaxMin(iid - 1, i_max, i_min);
+  }
+  
+  /* Return status */
+  return status;
 }
+
+/* 
+ * Implementation of "instr_field" operation.
+ * 
+ * header_config() must be called before using this function.
+ * 
+ * Parameters:
+ * 
+ *   iid - the instrument ID
+ * 
+ *   low_pos - the stereo position of the low pitch
+ * 
+ *   low_pitch - the low pitch
+ * 
+ *   high_pos - the stereo position of the high pitch
+ * 
+ *   high_pitch - the high pitch
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op_field(
     int32_t   iid,
     int32_t   low_pos,
@@ -496,15 +961,129 @@ static int op_field(
     int32_t   high_pos,
     int32_t   high_pitch,
     int     * per) {
-  printf("field %d %d %d %d %d\n",
-    (int) iid, (int) low_pos, (int) low_pitch,
-    (int) high_pos, (int) high_pitch);
-  return 1;
+  
+  int status = 1;
+  STEREO_POS sp;
+  
+  /* Initialize structures */
+  memset(&sp, 0, sizeof(STEREO_POS));
+  
+  /* Check per and state */
+  if ((per == NULL) || (!m_init)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if ((iid < 1) || (iid > INSTR_MAXCOUNT)) {
+    status = 0;
+    *per = ERR_INSTR;
+  }
+  if (status && ((low_pos < -(MAX_FRAC)) || (low_pos > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  if (status && ((high_pos < -(MAX_FRAC)) || (high_pos > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  if (status && ((low_pitch < SQWAVE_PITCH_MIN) ||
+                  (low_pitch > SQWAVE_PITCH_MAX))) {
+    status = 0;
+    *per = ERR_PITCH;
+  }
+  if (status && ((high_pitch < SQWAVE_PITCH_MIN) ||
+                  (high_pitch > SQWAVE_PITCH_MAX))) {
+    status = 0;
+    *per = ERR_PITCH;
+  }
+  if (status && (high_pitch < low_pitch)) {
+    status = 0;
+    *per = ERR_PITCHR;
+  }
+  
+  /* Call through */
+  if (status) {
+    stereo_setField(&sp, low_pos, low_pitch, high_pos, high_pitch);
+    instr_setStereo(iid - 1, &sp);
+  }
+  
+  /* Return status */
+  return status;
 }
+
+/* 
+ * Implementation of "instr_stereo" operation.
+ * 
+ * header_config() must be called before using this function.
+ * 
+ * Parameters:
+ * 
+ *   iid - the instrument ID
+ * 
+ *   pos - the stereo position
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op_stereo(int32_t iid, int32_t pos, int *per) {
-  printf("stereo %d %d\n", (int) iid, (int) pos);
-  return 1;
+  
+  int status = 1;
+  STEREO_POS sp;
+  
+  /* Initialize structures */
+  memset(&sp, 0, sizeof(STEREO_POS));
+  
+  /* Check per and state */
+  if ((per == NULL) || (!m_init)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if ((iid < 1) || (iid > INSTR_MAXCOUNT)) {
+    status = 0;
+    *per = ERR_INSTR;
+  }
+  if (status && ((pos < -(MAX_FRAC)) || (pos > MAX_FRAC))) {
+    status = 0;
+    *per = ERR_BADFRAC;
+  }
+  
+  /* Call through */
+  if (status) {
+    stereo_setPos(&sp, pos);
+    instr_setStereo(iid - 1, &sp);
+  }
+  
+  /* Return status */
+  return status;
 }
+
+/* 
+ * Implementation of "n" operation.
+ * 
+ * header_config() must be called before using this function.
+ * 
+ * Parameters:
+ * 
+ *   t - the time offset
+ * 
+ *   dur - the duration
+ * 
+ *   pitch - the pitch number
+ * 
+ *   iid - the instrument ID
+ * 
+ *   lid - the layer ID
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op_note(
     int32_t   t,
     int32_t   dur,
@@ -512,10 +1091,51 @@ static int op_note(
     int32_t   iid,
     int32_t   lid,
     int     * per) {
-  printf("note %d %d %d %d %d\n",
-    (int) t, (int) dur, (int) pitch,
-    (int) iid, (int) lid);
-  return 1;
+  
+  int status = 1;
+  
+  /* Check per and state */
+  if ((per == NULL) || (!m_init)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if (t < 0) {
+    status = 0;
+    *per = ERR_BADT;
+  }
+  if (status && (dur < 1)) {
+    status = 0;
+    *per = ERR_BADDUR;
+  }
+  if (status && (dur > INT32_MAX - t)) {
+    status = 0;
+    *per = ERR_LONGDUR;
+  }
+  if (status && ((pitch < SQWAVE_PITCH_MIN) ||
+                  (pitch > SQWAVE_PITCH_MAX))) {
+    status = 0;
+    *per = ERR_PITCH;
+  }
+  if (status && ((iid < 1) || (iid > INSTR_MAXCOUNT))) {
+    status = 0;
+    *per = ERR_INSTR;
+  }
+  if (status && ((lid < 1) || (lid > LAYER_MAXCOUNT))) {
+    status = 0;
+    *per = ERR_LAYER;
+  }
+  
+  /* Call through to sequencer module */
+  if (status) {
+    if (!seq_note(t, dur, pitch, iid - 1, lid - 1)) {
+      status = 0;
+      *per = ERR_NOTES;
+    }
+  }
+  
+  /* Return status */
+  return status;
 }
 
 /*
@@ -725,7 +1345,7 @@ static int op(const char *pk, int *per) {
     status = 0;
     *per = ERR_BADOP;
   }
-  
+
   /* Next, make sure stack height is sufficient for operation
    * parameters; for the layer opcode that has varying parameters, make
    * sure height is enough for the fixed parameters; also, save the
@@ -826,7 +1446,7 @@ static int op(const char *pk, int *per) {
       }
     }
   }
-  
+
   /* Get the number of variable parameters -- for a layer, this is given
    * by the third-from-top parameter; for everything else, this is zero;
    * verify for layer that this is at least one and doesn't exceed stack
@@ -853,13 +1473,13 @@ static int op(const char *pk, int *per) {
     /* Not a layer op -- set varcount to zero */
     varcount = 0;
   }
-  
+
   /* Check that if there are variable parameters, they are all graph
    * types */
   if (status) {
     st = m_stack_count - 1 - opcount;
     for(x = 0; x < varcount; x++) {
-      pt = stack_type(st - 1);
+      pt = stack_type(st - x);
       if ((pt != PTYPE_LC) && (pt != PTYPE_LR)) {
         status = 0;
         *per = ERR_PARAMT;
@@ -867,7 +1487,7 @@ static int op(const char *pk, int *per) {
       }
     }
   }
-  
+
   /* Route to appropriate implementation function */
   if (status) {
     if (opcode == OPCODE_NOTE) {
@@ -1314,7 +1934,7 @@ static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
   int meta_cmd = METACMD_NONE;
   
   int32_t v = 0;
-  
+
   /* Initialize structures and arrays */
   memset(&ent, 0, sizeof(SNENTITY));
   memset(meta_param, 0, sizeof(int32_t) * META_MAXPARAM);
@@ -1343,7 +1963,7 @@ static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
   for(snparser_read(pp, &ent, pIn);
       (ent.status >= 0) && (ent.status != SNENTITY_EOF);
       snparser_read(pp, &ent, pIn)) {
-    
+
     /* First of all, fail if an unsupported entity type */
     if ((ent.status != SNENTITY_BEGIN_META) &&
         (ent.status != SNENTITY_END_META) &&
@@ -1459,7 +2079,7 @@ static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
             *per = ERR_OVERFLW;
             *pln = snparser_count(pp);
           }
-          
+   
         } else {
           status = 0;
           *per = ERR_SN_MAX + SNERR_LONGARRAY;
@@ -1695,7 +2315,14 @@ static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
     *pln = snparser_count(pp);
   }
   
-  /* @@TODO: synthesize */
+  /* Synthesize */
+  if (status) {
+    if (!synthesize(pOutPath)) {
+      status = 0;
+      *per = ERR_OUTFILE;
+      *pln = snparser_count(pp);
+    }
+  }
   
   /* Free parser if allocated */
   snparser_free(pp);
@@ -1830,6 +2457,46 @@ static const char *error_string(int code) {
     
     case ERR_REMAIN:
       pResult = "Elements remaining on stack at end";
+      break;
+    
+    case ERR_BADDUR:
+      pResult = "Duration is less than one";
+      break;
+    
+    case ERR_LONGDUR:
+      pResult = "Duration is too long";
+      break;
+    
+    case ERR_PITCH:
+      pResult = "Pitch out of range";
+      break;
+    
+    case ERR_INSTR:
+      pResult = "Instrument index out of range";
+      break;
+    
+    case ERR_LAYER:
+      pResult = "Layer index out of range";
+      break;
+    
+    case ERR_NOTES:
+      pResult = "Too many notes";
+      break;
+    
+    case ERR_PITCHR:
+      pResult = "Invalid pitch range";
+      break;
+    
+    case ERR_IRANGE:
+      pResult = "Invalid intensity range";
+      break;
+    
+    case ERR_GRAPH:
+      pResult = "Invalid graph";
+      break;
+    
+    case ERR_OUTFILE:
+      pResult = "Can't open output file";
       break;
     
     case (ERR_SN_MAX+SNERR_IOERR):
