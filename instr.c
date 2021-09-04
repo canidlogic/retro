@@ -403,5 +403,57 @@ void instr_get(
     int32_t       pitch,
     int16_t       amp,
     STEREO_SAMP * pss) {
-  /* @@TODO: */
+  
+  INSTR_REG *pr = NULL;
+  int16_t s = 0;
+  int32_t intensity = 0;
+  
+  /* Get pointer to instrument register */
+  pr = instr_ptr(i);
+  
+  /* Check parameters */
+  if (t < 0) {
+    abort();
+  }
+  if (dur < 1) {
+    abort();
+  }
+  if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+    abort();
+  }
+  if ((amp < 0) || (amp > GRAPH_MAXVAL)) {
+    abort();
+  }
+  if (pss == NULL) {
+    abort();
+  }
+  
+  /* Only proceed if instrument register is not clear; otherwise, just
+   * generate a zero result */
+  if (!instr_isclear(pr)) {
+  
+    /* First of all, get the sample from the square wave generator */
+    s = sqwave_get(pitch, t);
+  
+    /* Second, compute the intensity from the amplitude and the i_max &
+     * i_min parameters */
+    intensity =
+      ((((int32_t) amp) * ((int32_t) (pr->i_max - pr->i_min))) /
+                ((int32_t) GRAPH_MAXVAL)) + ((int32_t) pr->i_min);
+  
+    /* Next, multiply the sample by the intensity */
+    s = (int16_t) ((intensity * ((int32_t) s)) / 
+            ((int32_t) INSTR_MAXINTENSITY));
+  
+    /* Then comes the envelope */
+    s = adsr_mul(pr->pa, t, dur, s);
+  
+    /* Finally, stereo-image the sample */
+    stereo_image(s, &(pr->sp), pss);
+  
+  } else {
+    /* Instrument register clear */
+    pss->left = 0;
+    pss->right = 0;
+  }
 }
