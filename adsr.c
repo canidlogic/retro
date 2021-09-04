@@ -12,6 +12,16 @@
 #include <string.h>
 
 /*
+ * Constants
+ * =========
+ */
+
+/*
+ * The maximum integer intensity value in an envelope.
+ */
+#define ADSR_MAXVAL (16384)
+
+/*
  * Type declarations
  * =================
  */
@@ -24,13 +34,9 @@
 struct ADSR_OBJ_TAG {
   
   /*
-   * The maximum and minimum intensity values, in integer range.
-   * 
-   * Both must be in range [0, ADSR_MAXVAL], i_max may not be zero, and
-   * and i_max must be greater than or equal to i_min.
+   * The reference count of the object.
    */
-  int16_t i_max;
-  int16_t i_min;
+  int32_t refcount;
   
   /*
    * The total number of envelope samples.
@@ -168,19 +174,15 @@ static void adsr_ramp(
  */
 
 /*
- * adsr_init function.
+ * adsr_alloc function.
  */
 ADSR_OBJ *adsr_alloc(
-    double       i_max,
-    double       i_min,
     double       t_attack,
     double       t_decay,
     double       sustain,
     double       t_release,
     int32_t      rate) {
   
-  int32_t i_x = 0;
-  int32_t i_n = 0;
   int32_t v_s = 0;
   int32_t attack = 0;
   int32_t decay = 0;
@@ -188,18 +190,8 @@ ADSR_OBJ *adsr_alloc(
   ADSR_OBJ *pa = NULL;
   
   /* Check parameters */
-  if ((!isfinite(i_max)) || (!isfinite(i_min)) ||
-      (!isfinite(t_attack)) || (!isfinite(t_decay)) ||
+  if ((!isfinite(t_attack)) || (!isfinite(t_decay)) ||
       (!isfinite(sustain)) || (!isfinite(t_release))) {
-    abort();
-  }
-  if (!((i_max > 0.0) && (i_max <= 1.0))) {
-    abort();
-  }
-  if (!((i_min >= 0.0) && (i_min <= 1.0))) {
-    abort();
-  }
-  if (!(i_min <= i_max)) {
     abort();
   }
   if (!((sustain >= 0.0) && (sustain <= 1.0))) {
@@ -274,22 +266,6 @@ ADSR_OBJ *adsr_alloc(
     release = ADSR_MAXTIME;
   }
   
-  /* Compute integer i_max and i_min and clamp to range */
-  i_x = (int32_t) (i_max * ((double) ADSR_MAXVAL));
-  i_n = (int32_t) (i_min * ((double) ADSR_MAXVAL));
-  
-  if (i_x < 0) {
-    i_x = 0;
-  } else if (i_x > ADSR_MAXVAL) {
-    i_x = ADSR_MAXVAL;
-  }
-  
-  if (i_n < 0) {
-    i_n = 0;
-  } else if (i_n > ADSR_MAXVAL) {
-    i_n = ADSR_MAXVAL;
-  }
-  
   /* Compute integer sustain value */
   v_s = (int32_t) (sustain * ((double) ADSR_MAXVAL));
   if (v_s < 0) {
@@ -306,9 +282,7 @@ ADSR_OBJ *adsr_alloc(
   memset(pa, 0, sizeof(ADSR_OBJ));
   
   /* Set variables */
-  pa->i_max = (int16_t) i_x;
-  pa->i_min = (int16_t) i_n;
-  
+  pa->refcount = 1;
   pa->env_samp = attack + decay + release + 1;
   pa->env_mid = attack + decay;
   
@@ -336,12 +310,28 @@ ADSR_OBJ *adsr_alloc(
 }
 
 /*
- * adsr_free function.
+ * adsr_addref function.
  */
-void adsr_free(ADSR_OBJ *pa) {
+void adsr_addref(ADSR_OBJ *pa) {
   if (pa != NULL) {
-    free(pa->penv);
-    free(pa);
+    if (pa->refcount < INT32_MAX) {
+      (pa->refcount)++;
+    } else {
+      abort();  /* reference count overflow */
+    }
+  }
+}
+
+/*
+ * adsr_release function.
+ */
+void adsr_release(ADSR_OBJ *pa) {
+  if (pa != NULL) {
+    (pa->refcount)--;
+    if (pa->refcount < 1) {
+      free(pa->penv);
+      free(pa);
+    }
   }
 }
 
@@ -382,11 +372,9 @@ int16_t adsr_mul(
     ADSR_OBJ * pa,
     int32_t    t,
     int32_t    dur,
-    int32_t    intensity,
     int16_t    s) {
   
   int32_t result = 0;
-  int32_t ival = 0;
   int32_t el = 0;
   int32_t ie = 0;
   
@@ -399,16 +387,8 @@ int16_t adsr_mul(
     abort();
   }
   
-  /* First of all, apply intensity */
-  ival = ((intensity * ((int32_t) (pa->i_max - pa->i_min))) / 
-              ADSR_MAXVAL) + ((int32_t) pa->i_min);
-  result = (((int32_t) s) * ival) / ADSR_MAXVAL;
-  
-  if (result > INT16_MAX) {
-    result = INT16_MAX;
-  } else if (result < -(INT16_MAX)) {
-    result = -(INT16_MAX);
-  }
+  /* First of all, set result to input sample */
+  result = (int32_t) s;
   
   /* If the t value is less than or equal to env_mid, then t is the
    * index within the cached envelope; else, we need further computation
