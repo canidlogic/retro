@@ -37,7 +37,7 @@
 
 #include "sqwave.h"
 #include "wavwrite.h"
-#include <stdint.h>
+#include "retrodef.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -80,7 +80,7 @@ static int fullscale(const char *pPath, int32_t rate, int32_t amp) {
   if (pPath == NULL) {
     abort();
   }
-  if ((rate != 48000) && (rate != 44100)) {
+  if ((rate != RATE_DVD) && (rate != RATE_CD)) {
     abort();
   }
   if ((amp < 16) || (amp > 32000)) {
@@ -88,13 +88,13 @@ static int fullscale(const char *pPath, int32_t rate, int32_t amp) {
   }
   
   /* Set WAV initialization flags and sqwave rate */
-  if (rate == 48000) {
+  if (rate == RATE_DVD) {
     wavflags = WAVWRITE_INIT_48000 | WAVWRITE_INIT_MONO;
-    sqrate = SQWAVE_RATE_DVD;
+    sqrate = rate;
   
-  } else if (rate == 44100) {
+  } else if (rate == RATE_CD) {
     wavflags = WAVWRITE_INIT_44100 | WAVWRITE_INIT_MONO;
-    sqrate = SQWAVE_RATE_CD;
+    sqrate = rate;
   
   } else {
     /* Unrecognized rate */
@@ -311,7 +311,7 @@ int main(int argc, char *argv[]) {
   
   /* Range check numeric parameters */
   if (status) {
-    if ((rate != 48000) && (rate != 44100)) {
+    if ((rate != RATE_DVD) && (rate != RATE_CD)) {
       status = 0;
       fprintf(stderr, "%s: Rate parameter invalid!\n", pModule);
     }
