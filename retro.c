@@ -24,12 +24,24 @@
  * Compilation
  * -----------
  * 
- * @@TODO:
+ * Compile with the following Retro modules:
+ * 
+ *   adsr
+ *   graph
+ *   instr
+ *   layer
+ *   sbuf
+ *   seq
+ *   sqwave
+ *   stereo
+ *   wavwrite
+ * 
+ * Also, compile with Shastina.
+ * 
+ * Finally, the math library may need to be included with -lm
  */
 
 #include <limits.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +52,8 @@
 #include "graph.h"
 #include "instr.h"
 #include "layer.h"
+#include "retrodef.h"
+#include "sbuf.h"
 #include "seq.h"
 #include "sqwave.h"
 #include "stereo.h"
@@ -56,7 +70,7 @@
 #define ERR_ENTITY  (1)   /* Unsupported Shastina entity type */
 #define ERR_METAMID (2)   /* Metacommand after header */
 #define ERR_NORATE  (3)   /* Sampling rate not defined in header */
-#define ERR_NOAMP   (4)   /* Square wave amplitude not in header */
+#define ERR_NOAMP   (4)   /* Output amplitude not in header */
 #define ERR_NOSIG   (5)   /* Missing file type signature */
 #define ERR_BADMETA (6)   /* Unknown metacommand */
 #define ERR_MPARAMC (7)   /* Too many metacommand parameters */
@@ -65,7 +79,7 @@
 #define ERR_EMPTYMT (10)  /* Empty metacommand */
 #define ERR_METAMUL (11)  /* Metacommand used multiple times */
 #define ERR_BADRATE (12)  /* Invalid sampling rate */
-#define ERR_BADAMP  (13)  /* Invalid square wave amplitude */
+#define ERR_BADAMP  (13)  /* Invalid output amplitude */
 #define ERR_BADFRM  (14)  /* Invalid frame definition */
 #define ERR_EMPTY   (15)  /* Nothing after header */
 #define ERR_NUM     (16)  /* Can't parse numeric entity */
@@ -98,6 +112,11 @@
  */
 
 /*
+ * The amplitude to use to initialize the square wave module.
+ */
+#define SQWAVE_AMP_INIT (20000.0)
+
+/*
  * Maximum number of metacommand parameters.
  */
 #define META_MAXPARAM (8)
@@ -108,14 +127,9 @@
 #define METACMD_NONE        (0)   /* No metacommand recorded yet */
 #define METACMD_SIGNATURE   (1)   /* File signature "retro-synth" */
 #define METACMD_RATE        (2)   /* Sampling rate "rate" */
-#define METACMD_SQAMP       (3)   /* Square wave amplitude "sqamp" */
+#define METACMD_SQAMP       (3)   /* Output amplitude "sqamp" */
 #define METACMD_NOSTEREO    (4)   /* No stereo "nostereo" */
 #define METACMD_FRAME       (5)   /* Frame definition "frame" */
-
-/*
- * The maximum integer value used for representing fractions.
- */
-#define MAX_FRAC (1024)
 
 /*
  * The maximum number of entries on the interpreter stack.
@@ -207,7 +221,7 @@ static int m_init = 0;
 static int32_t m_rate;
 
 /*
- * The amplitude of the square wave module.
+ * The amplitude of the output.
  * 
  * Only valid if m_init is non-zero.
  */
@@ -372,13 +386,13 @@ static int synthesize(const char *pOutPath) {
   }
   
   /* Set WAV initialization flags and sqwave rate */
-  if (m_rate == 48000) {
+  if (m_rate == RATE_DVD) {
     wavflags = WAVWRITE_INIT_48000;
-    sqrate = SQWAVE_RATE_DVD;
+    sqrate = m_rate;
   
-  } else if (m_rate == 44100) {
+  } else if (m_rate == RATE_CD) {
     wavflags = WAVWRITE_INIT_44100;
-    sqrate = SQWAVE_RATE_CD;
+    sqrate = m_rate;
   
   } else {
     /* Unrecognized rate */
@@ -391,7 +405,7 @@ static int synthesize(const char *pOutPath) {
   }
   
   /* Initialize square wave module */
-  sqwave_init((double) m_sqamp, sqrate);
+  sqwave_init(SQWAVE_AMP_INIT, sqrate);
   
   /* Flatten stereo if requested */
   if (m_nostereo) {
@@ -410,9 +424,24 @@ static int synthesize(const char *pOutPath) {
     }
   }
   
-  /* Sequence the music */
+  /* Initialize sample buffer module */
+  if (status) {
+    sbuf_init();
+  }
+  
+  /* Sequence the music to the sample buffer */
   if (status) {
     seq_play();
+  }
+  
+  /* Stream the sample buffer to output */
+  if (status) {
+    sbuf_stream(m_sqamp);
+  }
+  
+  /* Close down the sample buffer */
+  if (status) {
+    sbuf_close();
   }
   
   /* Write silence after */
@@ -591,7 +620,8 @@ static int op_layer(
   GRAPH_OBJ *pg = NULL;
   
   /* Check per and psa and state and c */
-  if ((per == NULL) || (!m_init) || (psa == NULL) || (c < 1)) {
+  if ((per == NULL) || (!m_init) || (psa == NULL) ||
+      (c < 1) || (c > GRAPH_MAXCOUNT)) {
     abort();
   }
   
@@ -659,7 +689,7 @@ static int op_layer(
   /* Call through */
   if (status) {
     pg = graph_alloc(c);
-    for(x = c - 1; x >= 0; x--) {
+    for(x = 0; x < c; x++) {
       graph_set(pg, x, (psa[x]).val, (psa[x]).ra, (psa[x]).rb);
     }
     layer_define(lid - 1, ((double) m) / 1024.0, pg);
@@ -996,7 +1026,7 @@ static int op_field(
     status = 0;
     *per = ERR_PITCH;
   }
-  if (status && (high_pitch < low_pitch)) {
+  if (status && (high_pitch <= low_pitch)) {
     status = 0;
     *per = ERR_PITCHR;
   }
@@ -1455,8 +1485,8 @@ static int op(const char *pk, int *per) {
     /* Layer op -- get count */
     varcount = (m_stack[m_stack_count - 3]).val;
     
-    /* Verify count is at least one */
-    if (varcount < 1) {
+    /* Verify count is at least one and no more than GRAPH_MAXCOUNT */
+    if ((varcount < 1) || (varcount > GRAPH_MAXCOUNT)) {
       status = 0;
       *per = ERR_LAYERC;
     }
@@ -1722,9 +1752,9 @@ static int push_num(int32_t val) {
  * 
  * Parameters:
  * 
- *   rate - the sampling rate (48000 or 44100)
+ *   rate - the sampling rate (RATE_DVD or RATE_CD)
  * 
- *   sqamp - the square wave amplitude
+ *   sqamp - the output amplitude
  * 
  *   nostereo - non-zero for no-stereo mode
  * 
@@ -1745,10 +1775,11 @@ static void header_config(
   }
   
   /* Check parameters */
-  if ((rate != 48000) && (rate != 44100)) {
+  if ((rate != RATE_DVD) && (rate != RATE_CD)) {
     abort();
   }
-  if ((sqamp < 1) || (frame_before < 0) || (frame_after < 0)) {
+  if ((sqamp < 1) || (sqamp > INT16_MAX) ||
+      (frame_before < 0) || (frame_after < 0)) {
     abort();
   }
   
@@ -2229,7 +2260,8 @@ static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
         } else if (status && (meta_cmd == METACMD_RATE)) {
           /* Rate -- set rate, error if invalid value or already set */
           if (rate < 0) {
-            if ((meta_param[0] == 48000) || (meta_param[0] == 44100)) {
+            if ((meta_param[0] == RATE_DVD) ||
+                  (meta_param[0] == RATE_CD)) {
               rate = meta_param[0];
             } else {
               status = 0;
@@ -2244,9 +2276,9 @@ static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
           }
           
         } else if (status && (meta_cmd == METACMD_SQAMP)) {
-          /* Square wave amplitude, error if invalid value or set */
+          /* Output amplitude, error if invalid value or set */
           if (sqamp < 0) {
-            if (meta_param[0] > 0) {
+            if ((meta_param[0] > 0) && (meta_param[0] <= INT16_MAX)) {
               sqamp = meta_param[0];
             } else {
               status = 0;
@@ -2372,7 +2404,7 @@ static const char *error_string(int code) {
       break;
     
     case ERR_NOAMP:
-      pResult = "Square wave amplitude not defined in header";
+      pResult = "Output amplitude not defined in header";
       break;
       
     case ERR_NOSIG:
@@ -2408,7 +2440,7 @@ static const char *error_string(int code) {
       break;
       
     case ERR_BADAMP:
-      pResult = "Invalid square wave amplitude";
+      pResult = "Invalid output amplitude";
       break;
     
     case ERR_BADFRM:
