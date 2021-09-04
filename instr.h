@@ -28,7 +28,7 @@
  * 
  * This must not exceed 65535.
  */
-#define INSTR_MAXINTENSITY (INT32_C(32768))
+#define INSTR_MAXINTENSITY (INT32_C(1024))
 
 /*
  * Clear the instrument register i.
@@ -199,6 +199,9 @@ int32_t instr_length(int32_t i, int32_t dur);
 
 /*
  * Compute an instrument sample.
+ * 
+ * The square wave module must be initialized before calling this
+ * function.
  * 
  * i is the instrument register to use.  It must be in range
  * [0, INSTR_MAXCOUNT - 1].  If the given register is cleared, this call
