@@ -12,16 +12,6 @@
 #include <string.h>
 
 /*
- * Constants
- * =========
- */
-
-/*
- * The maximum integer intensity value in an envelope.
- */
-#define ADSR_MAXVAL (16384)
-
-/*
  * Type declarations
  * =================
  */
@@ -39,32 +29,34 @@ struct ADSR_OBJ_TAG {
   int32_t refcount;
   
   /*
-   * The total number of envelope samples.
+   * The number of samples for the attack.
    * 
-   * The sustain period always only has a single sample in the cached
-   * envelope.  The total number of envelope samples must be at least
-   * one.
+   * This is in range [0, ADSR_MAXTIME].
    */
-  int32_t env_samp;
+  int32_t attack;
   
   /*
-   * The sample index of the sustain sample within the envelope.
+   * The number of samples for the decay.
    * 
-   * This must be in range [0, env_samp - 1].  All samples before the
-   * env_mid sample (if any) are the attack and decay samples.  All
-   * samples after the env_mid sample (if any) are the release samples.
+   * This is in range [0, ADSR_MAXTIME].
+   * 
+   * If sustain is MAX_FRAC, then this must be zero.
    */
-  int32_t env_mid;
+  int32_t decay;
   
   /*
-   * Pointer to the cached envelope.
+   * The sustain level.
    * 
-   * This is a dynamically allocated array with length env_samp.  Each
-   * array element is in range [0, ADSR_MAXVAL], where zero means a
-   * value of 0.0 for the envelope and ADSR_MAXVAL means a value of 1.0
-   * for the envelope.
+   * This is in range [0, MAX_FRAC].
    */
-  uint16_t *penv;
+  int32_t sustain;
+  
+  /*
+   * The number of samples for the release.
+   * 
+   * This is in range [0, ADSR_MAXTIME].
+   */
+  int32_t release;
 };
 
 /*
@@ -72,98 +64,96 @@ struct ADSR_OBJ_TAG {
  * ===============
  */
 
-/* Function prototypes */
-static void adsr_ramp(
-    int16_t * pv,
-    int32_t   i,
-    int32_t   len,
-    int16_t   begin_val,
-    int16_t   end_val);
+/* Prototypes */
+static int32_t adsr_compute(ADSR_OBJ *pa, int32_t t, int32_t dur);
 
 /*
- * Create a ramp of integer values.
+ * Compute the ADSR envelope multiplier for a given t and duration.
  * 
- * pv points to the array of integer values.
+ * pa is the ADSR envelope.
  * 
- * i is the index of the first array element in the ramp.  It must be
- * zero or greater.
+ * t is the offset from the start of the envelope in samples.  It must
+ * be zero or greater.
  * 
- * len is the number of elements in the ramp.  It must be zero or
- * greater.
+ * dur is the duration of the event in samples.  It must be at least
+ * one.  The duration of the event is not necessarily the same as the
+ * duration of the envelope.
  * 
- * begin_val is the value at the start of the ramp, and end_val is the
- * value at the end of the ramp.  They may have any values.
- * 
- * If len is zero, the function does nothing.  If len is one, a value
- * halfway between begin and end is written to the index.  If len is
- * greater than one, the first value of the ramp is begin_val, and the
- * ramp ends just before end_val.
+ * The return value is a multiplier in range [0, MAX_FRAC].
  * 
  * Parameters:
  * 
- *   pv - pointer to the array
+ *   pa - the ADSR envelope
  * 
- *   i - index of the first array element in the ramp
+ *   t - the t offset
  * 
- *   len - length of the ramp
+ *   dur - the duration
  * 
- *   begin_val - value at the beginning of the ramp
+ * Return:
  * 
- *   end_val - value at the end of the ramp
+ *   the ADSR multiplier
  */
-static void adsr_ramp(
-    int16_t * pv,
-    int32_t   i,
-    int32_t   len,
-    int16_t   begin_val,
-    int16_t   end_val) {
+static int32_t adsr_compute(ADSR_OBJ *pa, int32_t t, int32_t dur) {
   
-  double vf = 0.0;
-  int32_t r = 0;
-  int32_t x = 0;
+  int32_t mv = 0;
+  int32_t offset = 0;
+  int32_t scale = 0;
   
   /* Check parameters */
-  if (pv == NULL) {
+  if (pa == NULL) {
     abort();
   }
-  if ((i < 0) || (len < 0)) {
+  if ((t < 0) || (dur < 1)) {
     abort();
   }
   
-  /* Different ramps depending on length */
-  if (len == 1) {
-    /* Only one element -- compute halfway point */
-    vf = (((double) begin_val) + ((double) end_val)) / 2.0;
-    r = (int32_t) vf;
-    if (r > INT16_MAX) {
-      r = INT16_MAX;
-    } else if (r < -(INT16_MAX)) {
-      r = -(INT16_MAX);
-    }
+  /* Determine the envelope multiplier value depending on where in the
+   * envelope we are */
+  if (t >= dur) {
+    /* Beyond the duration, so we are releasing -- compute offset */
+    offset = t - dur;
     
-    /* Set the element */
-    pv[i] = (int16_t) r;
+    /* Check whether beyond envelope */
+    if (offset >= pa->release) {
+      /* Beyond the envelope, so multiplier is just zero */
+      mv = 0;
     
-  } else if (len > 1) {
-    /* More than one element -- compute the full ramp */
-    for(x = 0; x < len; x++) {
-      /* Compute progress */
-      vf = ((double) x) / ((double) len);
-      
-      /* Compute value */
-      vf = vf * (((double) end_val) - ((double) begin_val)) +
-                ((double) begin_val);
-      r = (int32_t) vf;
-      if (r > INT16_MAX) {
-        r = INT16_MAX;
-      } else if (r < -(INT16_MAX)) {
-        r = -(INT16_MAX);
-      }
-      
-      /* Set the element */
-      pv[i + x] = (int16_t) r;
+    } else {
+      /* Not beyond the envelope; recursively determine the scale of the
+       * release from the envelope multiplier just before the release
+       * period */
+      scale = adsr_compute(pa, dur - 1, dur);
+    
+      /* Compute the envelope multiplier */
+      mv = (int32_t)
+            ((((int64_t) (pa->release - offset)) * ((int64_t) scale)) /
+              ((int64_t) pa->release));
     }
+  
+  } else if (t < pa->attack) {
+    /* During the attack -- offset is t */
+    offset = t;
+    
+    /* Compute the envelope multiplier */
+    mv = (int32_t) ((((int64_t) offset) * ((int64_t) MAX_FRAC)) /
+                      ((int64_t) pa->attack));
+    
+  } else if (t < pa->attack + pa->decay) {
+    /* During the decay -- compute the offset */
+    offset = t - pa->attack;
+    
+    /* Compute the envelope multiplier */
+    mv = (int32_t) (((((int64_t) (pa->decay - offset)) *
+                      ((int64_t) (MAX_FRAC - pa->sustain))) /
+                    ((int64_t) pa->decay)) + pa->sustain);
+    
+  } else {
+    /* During the sustain -- just use sustain level */
+    mv = pa->sustain;
   }
+  
+  /* Return the multiplier value */
+  return mv;
 }
 
 /*
@@ -201,17 +191,12 @@ ADSR_OBJ *adsr_alloc(
       (!(t_release >= 0.0))) {
     abort();
   }
-  if ((rate != 48000) && (rate != 44100)) {
+  if ((rate != RATE_DVD) && (rate != RATE_CD)) {
     abort();
   }
   
-  /* If sustain is special value 0.0 or 1.0, then adjust other
-   * parameters appropriately */
-  if (sustain == 0.0) {
-    /* If sustain level is zero, then there is no release */
-    t_release = 0.0;
-  
-  } else if (sustain == 1.0) {
+  /* If sustain is special value 1.0, then there is no decay */
+  if (sustain == 1.0) {
     /* If sustain level is one, there is no decay */
     t_decay = 0.0;
   }
@@ -267,11 +252,11 @@ ADSR_OBJ *adsr_alloc(
   }
   
   /* Compute integer sustain value */
-  v_s = (int32_t) (sustain * ((double) ADSR_MAXVAL));
+  v_s = (int32_t) (sustain * ((double) MAX_FRAC));
   if (v_s < 0) {
     v_s = 0;
-  } else if (v_s > ADSR_MAXVAL) {
-    v_s = ADSR_MAXVAL;
+  } else if (v_s > MAX_FRAC) {
+    v_s = MAX_FRAC;
   }
   
   /* Allocate object */
@@ -283,27 +268,10 @@ ADSR_OBJ *adsr_alloc(
   
   /* Set variables */
   pa->refcount = 1;
-  pa->env_samp = attack + decay + release + 1;
-  pa->env_mid = attack + decay;
-  
-  /* Allocate buffer for cached envelope */
-  pa->penv = (int16_t *) malloc(pa->env_samp * sizeof(int16_t));
-  if (pa->penv == NULL) {
-    abort();
-  }
-  memset(pa->penv, 0, pa->env_samp * sizeof(int16_t));
-  
-  /* Set the envelope */
-  adsr_ramp(pa->penv, 0, attack,
-            0, (int16_t) ADSR_MAXVAL);
-  
-  adsr_ramp(pa->penv, attack, decay,
-            (int16_t) ADSR_MAXVAL, (int16_t) v_s);
-  
-  (pa->penv)[pa->env_mid] = (int16_t) v_s;
-  
-  adsr_ramp(pa->penv, pa->env_mid + 1, release,
-            (int16_t) v_s, 0);
+  pa->attack = attack;
+  pa->decay = decay;
+  pa->sustain = v_s;
+  pa->release = release;
   
   /* Return object */
   return pa;
@@ -329,7 +297,6 @@ void adsr_release(ADSR_OBJ *pa) {
   if (pa != NULL) {
     (pa->refcount)--;
     if (pa->refcount < 1) {
-      free(pa->penv);
       free(pa);
     }
   }
@@ -347,14 +314,8 @@ int32_t adsr_length(ADSR_OBJ *pa, int32_t dur) {
     abort();
   }
   
-  /* The duration must include at least one sustain sample, so extend it
-   * if necessary */
-  if (dur < pa->env_mid + 1) {
-    dur = pa->env_mid + 1;
-  }
-  
-  /* Add any release samples to the duration */
-  d = ((int64_t) dur) + ((int64_t) (pa->env_samp - pa->env_mid - 1));
+  /* The duration is dur plus any release samples */
+  d = ((int64_t) dur) + ((int64_t) pa->release);
   
   /* Truncate to signed 32-bit integer length if necessary */
   if (d > INT32_MAX) {
@@ -374,65 +335,22 @@ int16_t adsr_mul(
     int32_t    dur,
     int16_t    s) {
   
+  int32_t mv = 0;
   int32_t result = 0;
-  int32_t el = 0;
-  int32_t ie = 0;
   
-  /* Check parameters */
-  if (pa == NULL) {
-    abort();
-  }
-  if ((t < 0) || (dur < 1)) {
-    abort();
-  }
+  /* Compute the envelope multiplier */
+  mv = adsr_compute(pa, t, dur);
   
-  /* First of all, set result to input sample */
-  result = (int32_t) s;
+  /* Multiply input sample by multiplier */
+  result = (((int32_t) s) * mv) / MAX_FRAC;
   
-  /* If the t value is less than or equal to env_mid, then t is the
-   * index within the cached envelope; else, we need further computation
-   * to determine the index */
-  if (t <= pa->env_mid) {
-    ie = t;
-  
-  } else {
-    /* Further computation required to determine envelope index --
-     * first, get the full length of the envelope */
-    el = adsr_length(pa, dur);
-    
-    /* Flip t so that t=0 is the last sample of the envelope and t moves
-     * backwards */
-    t = el - t - 1;
-    
-    /* If t is greater than the cached envelope length minus one, set it
-     * to the cached envelope length minus one */
-    if (t > (pa->env_samp - 1)) {
-      t = pa->env_samp - 1;
-    }
-    
-    /* Flip t again so that it is an offset within the cached
-     * envelope */
-    t = pa->env_samp - t - 1;
-    
-    /* If t is less than the sustain sample, set it to the sustain
-     * sample */
-    if (t < pa->env_mid) {
-      t = pa->env_mid;
-    }
-    
-    /* t is now the index within the cached envelope */
-    ie = t;
-  }
-  
-  /* Apply the envelope value */
-  result = (result * ((int32_t) (pa->penv)[ie])) / ADSR_MAXVAL;
-  
-  if (result > INT16_MAX) {
-    result = INT16_MAX;
-  } else if (result < -(INT16_MAX)) {
+  /* Clamp result */
+  if (result < -(INT16_MAX)) {
     result = -(INT16_MAX);
+  } else if (result > INT16_MAX) {
+    result = INT16_MAX;
   }
   
-  /* Return the transformed sample */
+  /* Return result */
   return (int16_t) result;
 }
