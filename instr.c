@@ -25,8 +25,8 @@ typedef struct {
    * 
    * If both are zero, the register is cleared.
    * 
-   * Both must be in range [0, INSTR_MAXINTENSITY].  Furthermore, i_max
-   * must be greater than or equal to i_min.
+   * Both must be in range [0, MAX_FRAC].  Furthermore, i_max must be
+   * greater than or equal to i_min.
    */
   uint16_t i_max;
   uint16_t i_min;
@@ -218,7 +218,7 @@ void instr_define(
   
   /* Check parameters */
   if ((i_max < 0) || (i_min < 0) ||
-      (i_max > INSTR_MAXINTENSITY) || (i_min > INSTR_MAXINTENSITY) ||
+      (i_max > MAX_FRAC) || (i_min > MAX_FRAC) ||
       (i_max < i_min)) {
     abort();
   }
@@ -292,7 +292,7 @@ void instr_setMaxMin(int32_t i, int32_t i_max, int32_t i_min) {
   
   /* Check parameters */
   if ((i_max < 0) || (i_min < 0) ||
-      (i_max > INSTR_MAXINTENSITY) || (i_min > INSTR_MAXINTENSITY) ||
+      (i_max > MAX_FRAC) || (i_min > MAX_FRAC) ||
       (i_max < i_min)) {
     abort();
   }
@@ -421,7 +421,7 @@ void instr_get(
   if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
     abort();
   }
-  if ((amp < 0) || (amp > GRAPH_MAXVAL)) {
+  if ((amp < 0) || (amp > MAX_FRAC)) {
     abort();
   }
   if (pss == NULL) {
@@ -439,17 +439,17 @@ void instr_get(
      * i_min parameters */
     intensity =
       ((((int32_t) amp) * ((int32_t) (pr->i_max - pr->i_min))) /
-                ((int32_t) GRAPH_MAXVAL)) + ((int32_t) pr->i_min);
+                ((int32_t) MAX_FRAC)) + ((int32_t) pr->i_min);
   
     /* Next, multiply the sample by the intensity */
     s = (int16_t) ((intensity * ((int32_t) s)) / 
-            ((int32_t) INSTR_MAXINTENSITY));
+            ((int32_t) MAX_FRAC));
   
     /* Then comes the envelope */
     s = adsr_mul(pr->pa, t, dur, s);
   
     /* Finally, stereo-image the sample */
-    stereo_image(s, &(pr->sp), pss);
+    stereo_image(s, pitch, &(pr->sp), pss);
   
   } else {
     /* Instrument register clear */
