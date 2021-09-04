@@ -7,8 +7,8 @@
  * The stereo module of the Retro synthesizer.
  */
 
-#include <stddef.h>
-#include <stdint.h>
+#include "retrodef.h"
+#include "sqwave.h"
 
 /*
  * The STEREO_POS structure.
@@ -18,8 +18,51 @@
  */
 typedef struct {
   
-  /* @@TODO: */
-  int dummy;
+  /*
+   * For stereo fields, this is the stereo position associated with
+   * low_pitch.
+   * 
+   * For constant stereo positions, this is the stereo position.
+   * 
+   * The value is in range [-MAX_FRAC, MAX_FRAC].  The minimum value
+   * means full left, the maximum value means full right, and the zero
+   * value means full center.
+   */
+  int16_t low_pos;
+  
+  /*
+   * For stereo fields, this is the lowest pitch of the field.
+   * 
+   * For constant stereo positions, low_pitch equals high_pitch.
+   * 
+   * The range is [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].  For stereo
+   * fields, low_pitch must be less than high_pitch.  For constant
+   * stereo positions, low_pitch must equal high_pitch.
+   */
+  int16_t low_pitch;
+  
+  /*
+   * For stereo fields, this is the stereo position associated with
+   * high_pitch.
+   * 
+   * For constant stereo positions, this field is ignored.
+   * 
+   * The value is in range [-MAX_FRAC, MAX_FRAC].  The minimum value
+   * means full left, the maximum value means full right, and the zero
+   * value means full center.
+   */
+  int16_t high_pos;
+  
+  /*
+   * For stereo fields, this is the highest pitch of the field.
+   * 
+   * For constant stereo positions, high_pitch equals low_pitch.
+   * 
+   * The range is [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].  For stereo
+   * fields, low_pitch must be less than high_pitch.  For constant
+   * stereo positions, low_pitch must equal high_pitch.
+   */
+  int16_t high_pitch;
   
 } STEREO_POS;
 
@@ -57,6 +100,10 @@ void stereo_flatten(void);
  * 
  * s is the input sample.
  * 
+ * pitch is the pitch being performed, used for computing position
+ * within stereo fields.  It must be in range
+ * [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+ * 
  * psp is the properly initialized stereo position structure.
  * 
  * pss points to the structure to receive the stereo-imaged result.
@@ -69,19 +116,71 @@ void stereo_flatten(void);
  * 
  *   s - the input sample
  * 
+ *   pitch - the pitch
+ * 
  *   psp - the stereo position
  * 
  *   pss - pointer to the result structure
  */
-void stereo_image(int16_t s, const STEREO_POS *psp, STEREO_SAMP *pss);
+void stereo_image(
+          int16_t s,
+          int32_t pitch,
+    const STEREO_POS  * psp,
+          STEREO_SAMP * pss);
 
-/* @@TODO: */
+/*
+ * Initialize a stereo position structure to represent a field.
+ * 
+ * psp is the stereo position structure to initialize.
+ * 
+ * low_pitch and high_pitch are the boundary pitches of the field.  Both
+ * must be in range [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].  Furthermore,
+ * low_pitch must be less than high_pitch.
+ * 
+ * low_pos and high_pos are the stereo positions associated with
+ * low_pitch and high_pitch, respectively.  If low_pos and high_pos are
+ * equal, then this call is equivalent to stereo_setPos() with pos set
+ * to that constant value.  Both positions must be in the range
+ * [-MAX_FRAC, MAX_FRAC], with the minimum value meaning full left, the
+ * maximum value meaning full right, and the zero value meaning full
+ * center.
+ * 
+ * Parameters:
+ * 
+ *   psp - the stereo position structure to initialize
+ * 
+ *   low_pos - the stereo position of the lower pitch
+ * 
+ *   low_pitch - the low pitch of the field
+ * 
+ *   high_pos - the stereo position of the higher pitch
+ * 
+ *   high_pitch - the high pitch of the field
+ */
 void stereo_setField(
     STEREO_POS * psp,
     int32_t      low_pos,
     int32_t      low_pitch,
     int32_t      high_pos,
     int32_t      high_pitch);
+
+/* 
+ * Initialize a stereo position structure to represent a constant stereo
+ * position.
+ * 
+ * psp is the stereo position structure to initialize.
+ * 
+ * pos is the stereo position.  It must be in the range
+ * [-MAX_FRAC, MAX_FRAC], with the minimum value meaning full left, the
+ * maximum value meaning full right, and the zero value meaning full
+ * center.
+ * 
+ * Parameters:
+ * 
+ *   psp - the stereo position structure to initialize
+ * 
+ *   pos - the constant stereo position
+ */
 void stereo_setPos(STEREO_POS *psp, int32_t pos);
 
 #endif
