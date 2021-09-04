@@ -3,7 +3,7 @@
  * ========
  * 
  * Perform a C major scale up and down with a specified instrument and
- * a crescendo up the scale and decrescendo down the scale.
+ * a crescendo the full length.
  * 
  * Syntax
  * ------
@@ -52,17 +52,19 @@
  * Compilation
  * -----------
  * 
- * @@TODO:
+ * @@TODO:  sqwave, wavwrite, adsr
  * 
  * May require the math library to be included with -lm
  */
 
+#include "adsr.h"
 #include "sqwave.h"
 #include "wavwrite.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 /*
  * Static data
@@ -144,10 +146,18 @@ static int cmajor(
   int32_t p = 0;
   int32_t i = 0;
   int32_t plen = 0;
+  int32_t plenx = 0;
   int16_t s = 0;
+  double intensity = 0.0;
+  double progress_mul = 0.0;
+  double progress_add = 0.0;
   int status = 1;
   int wavflags = 0;
   int32_t sqrate = 0;
+  ADSR_PARAM ap;
+  
+  /* Initialize structures */
+  memset(&ap, 0, sizeof(ADSR_PARAM));
   
   /* Check parameters */
   if (pPath == NULL) {
@@ -204,6 +214,9 @@ static int cmajor(
     status = 0;
   }
   
+  /* Initialize ADSR parameters */
+  adsr_init(&ap, 1.0, i_min, attack, decay, sustain, release, rate);
+  
   /* Write the scale */
   if (status) {
     
@@ -215,14 +228,27 @@ static int cmajor(
     /* Compute the length in samples of each pitch */
     plen = rate / 2;
     
+    /* Compute extended length of pitch, including the release time */
+    plenx = plen + adsr_extra(&ap);
+    
     /* Write the ascending scale */
     for(p = 0; p < 8; p++) {
       
+      /* Compute the progress multiplier and additive */
+      progress_mul = (1.0 / (8.0 * ((double) plenx))) * 0.5;
+      progress_add = (((double) p) / 8.0) * 0.5;
+      
       /* Write the current pitch */
-      for(i = 0; i < plen; i++) {
+      for(i = 0; i < plenx; i++) {
         
-        /* Get the current sample and write it */
+        /* Get the current sample from square wave */
         s = sqwave_get(CMAJOR[p], i);
+        
+        /* Transform by ADSR envelope */
+        intensity = progress_mul * ((double) i) + progress_add;
+        s = adsr_mul(&ap, i, plen, intensity, s);
+        
+        /* Write the sample */
         wavwrite_sample(s, s);
       }
     }
@@ -230,11 +256,21 @@ static int cmajor(
     /* Write the descending scale */
     for(p = 7; p >= 0; p--) {
       
+      /* Compute the progress multiplier and additive */
+      progress_mul = (1.0 / (8.0 * ((double) plenx))) * 0.5;
+      progress_add = ((((double) (7 - p)) / 8.0) * 0.5) + 0.5;
+      
       /* Write the current pitch */
-      for(i = 0; i < plen; i++) {
+      for(i = 0; i < plenx; i++) {
         
-        /* Get the current sample and write it */
+        /* Get the current sample from square wave */
         s = sqwave_get(CMAJOR[p], i);
+        
+        /* Transform by ADSR envelope */
+        intensity = progress_mul * ((double) i) + progress_add;
+        s = adsr_mul(&ap, i, plen, intensity, s);
+        
+        /* Write the sample */
         wavwrite_sample(s, s);
       }
     }
@@ -384,6 +420,8 @@ int main(int argc, char *argv[]) {
   if (pModule == NULL) {
     pModule = "cmajor";
   }
+  
+  /* @@TODO: Parse the other parameters and pass them through */
   
   /* Verify three parameters in addition to module name */
   if (argc != 4) {
