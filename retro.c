@@ -62,6 +62,13 @@
 #define ERR_NUM     (16)  /* Can't parse numeric entity */
 #define ERR_OVERFLW (17)  /* Stack overflow */
 #define ERR_GROUP   (18)  /* Group closed improperly */
+#define ERR_BADOP   (19)  /* Unrecognized operation */
+#define ERR_OPPARAM (20)  /* Operation doesn't have enough parameters */
+#define ERR_PARAMT  (21)  /* Wrong parameter type */
+#define ERR_LAYERC  (22)  /* Invalid layer count */
+#define ERR_BADT    (23)  /* t value is negative */
+#define ERR_BADFRAC (24)  /* Invalid fraction value */
+#define ERR_REMAIN  (25)  /* Elements remain on stack at end */
 
 #define ERR_SN_MIN  (500) /* Mininum error code used for Shastina */
 #define ERR_SN_MAX  (600) /* Maximum error code used for Shastina */
@@ -87,11 +94,219 @@
 #define METACMD_FRAME       (5)   /* Frame definition "frame" */
 
 /*
+ * The maximum integer value used for representing fractions.
+ */
+#define MAX_FRAC (1024)
+
+/*
+ * The maximum number of entries on the interpreter stack.
+ */
+#define MAX_STACK (4096)
+
+/*
+ * The maximum number of nested groups.
+ */
+#define MAX_GROUP (1024)
+
+/*
+ * Opcodes.
+ */
+#define OPCODE_NONE   (0)   /* invalid opcode */
+#define OPCODE_LC     (1)   /* lc */
+#define OPCODE_LR     (2)   /* lr */
+#define OPCODE_LAYER  (3)   /* layer */
+#define OPCODE_DERIVE (4)   /* derive_layer */
+#define OPCODE_INSTR  (5)   /* instr */
+#define OPCODE_IDUP   (6)   /* instr_dup */
+#define OPCODE_MAXMIN (7)   /* instr_maxmin */
+#define OPCODE_FIELD  (8)   /* instr_field */
+#define OPCODE_STEREO (9)   /* instr_stereo */
+#define OPCODE_NOTE   (10)  /* n */
+
+/*
+ * Parameter types.
+ */
+#define PTYPE_INT (0)   /* Integer/numeric */
+#define PTYPE_LC  (1)   /* lc constant graph node */
+#define PTYPE_LR  (2)   /* lr ramp graph node */
+
+/*
+ * Type declarations
+ * =================
+ */
+
+/*
+ * The structure used on the interpreter stack.
+ */
+typedef struct {
+  
+  /*
+   * For numeric entries, this is the integer value.
+   * 
+   * For graph nodes, this is the t offset.
+   */
+  int32_t val;
+  
+  /*
+   * For numeric entries, this is set to -1.
+   * 
+   * For constant graph nodes, this is the value, in [0, MAX_FRAC].
+   * 
+   * For ramp graph nodes, this is the beginning value of the ramp, in
+   * range [0, MAX_FRAC].
+   */
+  int16_t ra;
+  
+  /*
+   * For numeric entries, this is set to -1.
+   * 
+   * For constant graph nodes, this is set to -1.
+   * 
+   * For ramp graph nodes, this is the end value of the ramp, in range
+   * [0, MAX_FRAC].
+   */
+  int16_t rb;
+  
+} STACK_REC;
+
+/*
+ * Static data
+ * ===========
+ */
+
+/*
+ * Flag indicating whether module has been initialized with the
+ * header_config() function.
+ */
+static int m_init = 0;
+
+/*
+ * The sampling rate, in hertz.
+ * 
+ * Only valid if m_init is non-zero.
+ */
+static int32_t m_rate;
+
+/*
+ * The amplitude of the square wave module.
+ * 
+ * Only valid if m_init is non-zero.
+ */
+static int32_t m_sqamp;
+
+/*
+ * Flag that is non-zero to have single-channel output.
+ * 
+ * Only valid if m_init is non-zero.
+ */
+static int m_nostereo;
+
+/*
+ * The number of samples of silence before synthesis starts.
+ * 
+ * Only valid if m_init is non-zero.
+ */
+static int32_t m_frame_before;
+
+/*
+ * The number of samples of silence after synthesis ends.
+ * 
+ * Only valid if m_init is non-zero.
+ */
+static int32_t m_frame_after;
+
+/*
+ * The number of groups open on the group stack.
+ * 
+ * Only valid if m_init is non-zero.
+ */
+static int32_t m_group_count;
+
+/*
+ * The group stack.
+ * 
+ * Only valid if m_init is non-zero.
+ * 
+ * m_group_count indicates how many entries are on this stack.
+ * 
+ * Each entry is a count of the number of elements that were on the full
+ * stack when the group was opened.
+ */
+static int32_t m_group_stack[MAX_GROUP];
+
+/*
+ * The number of elements on the interpreter stack.
+ * 
+ * Only valid if m_init is non-zero.
+ * 
+ * This counts the number of elements on the full stack, regardless of
+ * what groups might be open.
+ */
+static int32_t m_stack_count;
+
+/*
+ * The interpreter stack.
+ * 
+ * Only valid if m_init is non-zero.
+ * 
+ * m_stack_count indicates how many elements are used on the stack.
+ */
+static STACK_REC m_stack[MAX_STACK];
+
+/*
  * Local functions
  * ===============
  */
 
 /* Prototypes */
+static int op_lc(int32_t t, int32_t r, int *per, STACK_REC *psr);
+static int op_lr(
+    int32_t     t,
+    int32_t     ra,
+    int32_t     rb,
+    int       * per,
+    STACK_REC * psr);
+static int op_layer(
+          int32_t     lid,
+          int32_t     m,
+          int32_t     c,
+    const STACK_REC * psa,
+          int       * per);
+static int op_derive(int32_t lid, int32_t src, int32_t m, int *per);
+static int op_instr(
+    int32_t   iid,
+    int32_t   i_max,
+    int32_t   i_min,
+    int32_t   attack,
+    int32_t   decay,
+    int32_t   sustain,
+    int32_t   release,
+    int     * per);
+static int op_idup(int32_t iid, int32_t src, int *per);
+static int op_maxmin(
+    int32_t   iid,
+    int32_t   i_max,
+    int32_t   i_min,
+    int     * per);
+static int op_field(
+    int32_t   iid,
+    int32_t   low_pos,
+    int32_t   low_pitch,
+    int32_t   high_pos,
+    int32_t   high_pitch,
+    int     * per);
+static int op_stereo(int32_t iid, int32_t pos, int *per);
+static int op_note(
+    int32_t   t,
+    int32_t   dur,
+    int32_t   pitch,
+    int32_t   iid,
+    int32_t   lid,
+    int     * per);
+
+static int32_t stack_height(void);
+static int stack_type(int32_t i);
+static int32_t stack_int(int32_t i);
 static int op(const char *pk, int *per);
 
 static int begin_group(void);
@@ -108,22 +323,776 @@ static int parseInt(const char *pstr, int32_t *pv);
 static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln);
 static const char *error_string(int code);
 
+/* 
+ * Implementation of "lc" operation.
+ * 
+ * psr points to a structure to be filled in with the record to be
+ * pushed on the stack, if successful.
+ * 
+ * Parameters:
+ * 
+ *   t - the time offset
+ * 
+ *   r - the constant intensity for the graph element
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ *   psr - pointer to result variable
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
+static int op_lc(int32_t t, int32_t r, int *per, STACK_REC *psr) {
+  
+  int status = 1;
+  
+  /* Check per and psr */
+  if ((per == NULL) || (psr == NULL)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if (t < 0) {
+    status = 0;
+    *per = ERR_BADT;
+  }
+  if (status) {
+    if ((r < 0) || (r > MAX_FRAC)) {
+      status = 0;
+      *per = ERR_BADFRAC;
+    }
+  }
+  
+  /* Fill in result */
+  if (status) {
+    psr->val = t;
+    psr->ra = (int16_t) r;
+    psr->rb = -1;
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/* 
+ * Implementation of "lr" operation.
+ * 
+ * psr points to a structure to be filled in with the record to be
+ * pushed on the stack, if successful.
+ * 
+ * If ra and rb are equal, this has the effect of an lc operation.
+ * 
+ * Parameters:
+ * 
+ *   t - the time offset
+ * 
+ *   ra - the beginning intensity for the graph element
+ * 
+ *   rb - the ending intensity for the graph element
+ * 
+ *   per - pointer to a variable to receive an error code
+ * 
+ *   psr - pointer to result variable
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
+static int op_lr(
+    int32_t     t,
+    int32_t     ra,
+    int32_t     rb,
+    int       * per,
+    STACK_REC * psr) {
+  
+  int status = 1;
+  
+  /* Check per and psr */
+  if ((per == NULL) || (psr == NULL)) {
+    abort();
+  }
+  
+  /* Range-check parameters */
+  if (t < 0) {
+    status = 0;
+    *per = ERR_BADT;
+  }
+  if (status) {
+    if ((ra < 0) || (ra > MAX_FRAC)) {
+      status = 0;
+      *per = ERR_BADFRAC;
+    }
+  }
+  if (status) {
+    if ((rb < 0) || (rb > MAX_FRAC)) {
+      status = 0;
+      *per = ERR_BADFRAC;
+    }
+  }
+  
+  /* Fill in result */
+  if (status) {
+    if (ra != rb) {
+      psr->val = t;
+      psr->ra = (int16_t) ra;
+      psr->rb = (int16_t) rb;
+    } else {
+      psr->val = t;
+      psr->ra = (int16_t) ra;
+      psr->rb = -1;
+    }
+  }
+  
+  /* Return status */
+  return status;
+}
+
 /* @@TODO: */
+static int op_layer(
+          int32_t     lid,
+          int32_t     m,
+          int32_t     c,
+    const STACK_REC * psa,
+          int       * per) {
+  printf("layer %d %d %d\n", (int) lid, (int) m, (int) c);
+  return 1;
+}
+static int op_derive(int32_t lid, int32_t src, int32_t m, int *per) {
+  printf("derive %d %d %d\n", (int) lid, (int) src, (int) m);
+  return 1;
+}
+static int op_instr(
+    int32_t   iid,
+    int32_t   i_max,
+    int32_t   i_min,
+    int32_t   attack,
+    int32_t   decay,
+    int32_t   sustain,
+    int32_t   release,
+    int     * per) {
+  printf("instr %d %d %d %d %d %d %d\n",
+    (int) iid, (int) i_max, (int) i_min,
+    (int) attack, (int) decay, (int) sustain,
+    (int) release);
+  return 1;
+}
+static int op_idup(int32_t iid, int32_t src, int *per) {
+  printf("idup %d %d\n", (int) iid, (int) src);
+  return 1;
+}
+static int op_maxmin(
+    int32_t   iid,
+    int32_t   i_max,
+    int32_t   i_min,
+    int     * per) {
+  printf("maxmin %d %d %d\n", (int) iid, (int) i_max, (int) i_min);
+  return 1;
+}
+static int op_field(
+    int32_t   iid,
+    int32_t   low_pos,
+    int32_t   low_pitch,
+    int32_t   high_pos,
+    int32_t   high_pitch,
+    int     * per) {
+  printf("field %d %d %d %d %d\n",
+    (int) iid, (int) low_pos, (int) low_pitch,
+    (int) high_pos, (int) high_pitch);
+  return 1;
+}
+static int op_stereo(int32_t iid, int32_t pos, int *per) {
+  printf("stereo %d %d\n", (int) iid, (int) pos);
+  return 1;
+}
+static int op_note(
+    int32_t   t,
+    int32_t   dur,
+    int32_t   pitch,
+    int32_t   iid,
+    int32_t   lid,
+    int     * per) {
+  printf("note %d %d %d %d %d\n",
+    (int) t, (int) dur, (int) pitch,
+    (int) iid, (int) lid);
+  return 1;
+}
+
+/*
+ * Get the current height of the stack, taking into account any open
+ * groups.
+ * 
+ * header_config() must be called before this function.
+ * 
+ * Return:
+ * 
+ *   the stack height, accounting for open groups
+ */
+static int32_t stack_height(void) {
+  
+  int32_t result = 0;
+  
+  /* Check state */
+  if (!m_init) {
+    abort();
+  }
+  
+  /* Check if an open group */
+  if (m_group_count > 0) {
+    /* Open groups, so use stack count minus top of group stack */
+    result = m_stack_count - m_group_stack[m_group_count - 1];
+    
+  } else {
+    /* No open groups, so just use stack count */
+    result = m_stack_count;
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * Get the type of element on the stack at index i.
+ * 
+ * header_config() must be called before this function.
+ * 
+ * The return value is one of the PTYPE constants.
+ * 
+ * i must be in range [0, m_stack_count - 1].  This function ignores any
+ * open groups.
+ * 
+ * Parameters:
+ * 
+ *   i - the index on the stack
+ * 
+ * Return:
+ * 
+ *   the type of element on the stack
+ */
+static int stack_type(int32_t i) {
+  
+  STACK_REC *psr = NULL;
+  int pt = 0;
+  
+  /* Check state */
+  if (!m_init) {
+    abort();
+  }
+  
+  /* Check parameter */
+  if ((i < 0) || (i > m_stack_count - 1)) {
+    abort();
+  }
+  
+  /* Get pointer to record */
+  psr = &(m_stack[i]);
+  
+  /* Determine type */
+  if (psr->ra < 0) {
+    pt = PTYPE_INT;
+  
+  } else if (psr->rb < 0) {
+    pt = PTYPE_LC;
+    
+  } else {
+    pt = PTYPE_LR;
+  }
+  
+  /* Return result */
+  return pt;
+}
+
+/*
+ * Get the integer stack element value at stack index i.
+ * 
+ * header_config() must be called before this function.
+ * 
+ * i must be in range [0, m_stack_count - 1].  Open groups are ignored
+ * by this function.
+ * 
+ * A fault occurs if the indicated record is not for an integer.
+ * 
+ * Parameters:
+ * 
+ *   i - the index of the stack element
+ * 
+ * Return:
+ * 
+ *   the integer value of the requested stack element
+ */
+static int32_t stack_int(int32_t i) {
+  
+  STACK_REC *psr = NULL;
+  
+  /* Check state */
+  if (!m_init) {
+    abort();
+  }
+  
+  /* Check parameter */
+  if ((i < 0) || (i > m_stack_count - 1)) {
+    abort();
+  }
+  
+  /* Get pointer to record */
+  psr = &(m_stack[i]);
+  
+  /* Verify type */
+  if (psr->ra >= 0) {
+    abort();
+  }
+  
+  /* Return result */
+  return psr->val;
+}
+
+/*
+ * Called to interpret an operation from the Shastina file.
+ * 
+ * header_config() must be called before this function.
+ * 
+ * per points to the variable to receive the error code in case of
+ * error.  It may not be NULL.
+ * 
+ * Parameters:
+ * 
+ *   pk - pointer to the opname token
+ * 
+ *   per - pointer to the error code variable
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if operation failed
+ */
 static int op(const char *pk, int *per) {
-  printf("op %s\n", pk);
-  return 1;
+  
+  int status = 1;
+  int opcode = OPCODE_NONE;
+  int32_t sh = 0;
+  int32_t opcount = 0;
+  int32_t varcount = 0;
+  int32_t x = 0;
+  int32_t st = 0;
+  int pt = 0;
+  STACK_REC sr;
+  
+  /* Initialize structures */
+  memset(&sr, 0, sizeof(STACK_REC));
+  
+  /* Check state */
+  if (!m_init) {
+    abort();
+  }
+  
+  /* Check parameters */
+  if ((pk == NULL) || (per == NULL)) {
+    abort();
+  }
+  
+  /* First of all, translate token to opcode */
+  if (strcmp(pk, "n") == 0) {
+    opcode = OPCODE_NOTE;
+  
+  } else if (strcmp(pk, "lc") == 0) {
+    opcode = OPCODE_LC;
+    
+  } else if (strcmp(pk, "lr") == 0) {
+    opcode = OPCODE_LR;
+    
+  } else if (strcmp(pk, "layer") == 0) {
+    opcode = OPCODE_LAYER;
+    
+  } else if (strcmp(pk, "derive_layer") == 0) {
+    opcode = OPCODE_DERIVE;
+    
+  } else if (strcmp(pk, "instr") == 0) {
+    opcode = OPCODE_INSTR;
+  
+  } else if (strcmp(pk, "instr_dup") == 0) {
+    opcode = OPCODE_IDUP;
+    
+  } else if (strcmp(pk, "instr_maxmin") == 0) {
+    opcode = OPCODE_MAXMIN;
+    
+  } else if (strcmp(pk, "instr_field") == 0) {
+    opcode = OPCODE_FIELD;
+    
+  } else if (strcmp(pk, "instr_stereo") == 0) {
+    opcode = OPCODE_STEREO;
+    
+  } else {
+    /* Unrecognized opcode */
+    status = 0;
+    *per = ERR_BADOP;
+  }
+  
+  /* Next, make sure stack height is sufficient for operation
+   * parameters; for the layer opcode that has varying parameters, make
+   * sure height is enough for the fixed parameters; also, save the
+   * number of (fixed) parameters */
+  if (status) {
+    /* Get stack height */
+    sh = stack_height();
+    
+    /* Check stack height and get parameter count */
+    if (opcode == OPCODE_NOTE) {
+      if (sh >= 5) {
+        opcount = 5;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_LC) {
+      if (sh >= 2) {
+        opcount = 2;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_LR) {
+      if (sh >= 3) {
+        opcount = 3;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_LAYER) {
+      if (sh >= 3) {
+        opcount = 3;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_DERIVE) {
+      if (sh >= 3) {
+        opcount = 3;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_INSTR) {
+      if (sh >= 7) {
+        opcount = 7;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_IDUP) {
+      if (sh >= 2) {
+        opcount = 2;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_MAXMIN) {
+      if (sh >= 3) {
+        opcount = 3;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_FIELD) {
+      if (sh >= 5) {
+        opcount = 5;
+      } else {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_STEREO) {
+      if (sh >= 2) {
+        opcount = 2;
+      } else {
+        status = 0;
+      }
+      
+    } else {
+      /* Unrecognized opcode -- shouldn't happen */
+      abort();
+    }
+    
+    /* If there was an error, set error code */
+    if (!status) {
+      *per = ERR_OPPARAM;
+    }
+  }
+
+  /* Check that all fixed parameters are integers */
+  if (status) {
+    for(x = 0; x < opcount; x++) {
+      if (stack_type(m_stack_count - x - 1) != PTYPE_INT) {
+        status = 0;
+        *per = ERR_PARAMT;
+        break;
+      }
+    }
+  }
+  
+  /* Get the number of variable parameters -- for a layer, this is given
+   * by the third-from-top parameter; for everything else, this is zero;
+   * verify for layer that this is at least one and doesn't exceed stack
+   * height */
+  if (status && (opcode == OPCODE_LAYER)) {
+    /* Layer op -- get count */
+    varcount = (m_stack[m_stack_count - 3]).val;
+    
+    /* Verify count is at least one */
+    if (varcount < 1) {
+      status = 0;
+      *per = ERR_LAYERC;
+    }
+    
+    /* Verify (varcount+opcount) doesn't exceed stack height */
+    if (status) {
+      if (varcount > sh - opcount) {
+        status = 0;
+        *per = ERR_LAYERC;
+      }
+    }
+    
+  } else if (status) {
+    /* Not a layer op -- set varcount to zero */
+    varcount = 0;
+  }
+  
+  /* Check that if there are variable parameters, they are all graph
+   * types */
+  if (status) {
+    st = m_stack_count - 1 - opcount;
+    for(x = 0; x < varcount; x++) {
+      pt = stack_type(st - 1);
+      if ((pt != PTYPE_LC) && (pt != PTYPE_LR)) {
+        status = 0;
+        *per = ERR_PARAMT;
+        break;
+      }
+    }
+  }
+  
+  /* Route to appropriate implementation function */
+  if (status) {
+    if (opcode == OPCODE_NOTE) {
+      if (!op_note(
+            stack_int(m_stack_count - 5),
+            stack_int(m_stack_count - 4),
+            stack_int(m_stack_count - 3),
+            stack_int(m_stack_count - 2),
+            stack_int(m_stack_count - 1),
+            per)) {
+        status = 0;
+      }
+    
+    } else if (opcode == OPCODE_LC) {
+      if (!op_lc(
+            stack_int(m_stack_count - 2),
+            stack_int(m_stack_count - 1),
+            per, &sr)) {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_LR) {
+      if (!op_lr(
+            stack_int(m_stack_count - 3),
+            stack_int(m_stack_count - 2),
+            stack_int(m_stack_count - 1),
+            per, &sr)) {
+        status = 0;
+      }
+    
+    } else if (opcode == OPCODE_LAYER) {
+      if (!op_layer(
+            stack_int(m_stack_count - 1),
+            stack_int(m_stack_count - 2),
+            varcount,
+            &(m_stack[m_stack_count - opcount - varcount]),
+            per)) {
+        status = 0;
+      }
+      
+    } else if (opcode == OPCODE_DERIVE) {
+      if (!op_derive(
+            stack_int(m_stack_count - 1),
+            stack_int(m_stack_count - 2),
+            stack_int(m_stack_count - 3),
+            per)) {
+        status = 0;
+      }
+    
+    } else if (opcode == OPCODE_INSTR) {
+      if (!op_instr(
+            stack_int(m_stack_count - 1),
+            stack_int(m_stack_count - 7),
+            stack_int(m_stack_count - 6),
+            stack_int(m_stack_count - 5),
+            stack_int(m_stack_count - 4),
+            stack_int(m_stack_count - 3),
+            stack_int(m_stack_count - 2),
+            per)) {
+        status = 0;
+      }
+  
+    } else if (opcode == OPCODE_IDUP) {
+      if (!op_idup(
+            stack_int(m_stack_count - 1),
+            stack_int(m_stack_count - 2),
+            per)) {
+        status = 0;
+      }
+    
+    } else if (opcode == OPCODE_MAXMIN) {
+      if (!op_maxmin(
+            stack_int(m_stack_count - 1),
+            stack_int(m_stack_count - 3),
+            stack_int(m_stack_count - 2),
+            per)) {
+        status = 0;
+      }
+    
+    } else if (opcode == OPCODE_FIELD) {
+      if (!op_field(
+            stack_int(m_stack_count - 1),
+            stack_int(m_stack_count - 5),
+            stack_int(m_stack_count - 4),
+            stack_int(m_stack_count - 3),
+            stack_int(m_stack_count - 2),
+            per)) {
+        status = 0;
+      }
+    
+    } else if (opcode == OPCODE_STEREO) {
+      if (!op_stereo(
+            stack_int(m_stack_count - 1),
+            stack_int(m_stack_count - 2),
+            per)) {
+        status = 0;
+      }
+    
+    } else {
+      /* Unrecognized opcode (shouldn't happen) */
+      abort();
+    }
+  }
+  
+  /* Clear parameters from stack */
+  if (status) {
+    m_stack_count = m_stack_count - opcount - varcount;
+  }
+  
+  /* If opcode was lc or lr, push the result on the stack */
+  if (status && ((opcode == OPCODE_LC) || (opcode == OPCODE_LR))) {
+    memcpy(&(m_stack[m_stack_count]), &sr, sizeof(STACK_REC));
+    m_stack_count++;
+  }
+  
+  /* Return status */
+  return status;
 }
+
+/*
+ * Called when a group begins while interpreting the Shastina file.
+ * 
+ * header_config() must be called before this function.
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if too much group nesting
+ */
 static int begin_group(void) {
-  printf("begin group\n");
-  return 1;
+  
+  int status = 1;
+  
+  /* Check state */
+  if (!m_init) {
+    abort();
+  }
+  
+  /* Check for group overflow */
+  if (m_group_count < MAX_GROUP) {
+    /* No overflow, so open new group */
+    m_group_stack[m_group_count] = m_stack_count;
+    m_group_count++;
+    
+  } else {
+    /* Group stack overflow */
+    status = 0;
+  }
+  
+  /* Return status */
+  return status;
 }
+
+/*
+ * Called when a group ends while interpreting the Shastina file.
+ * 
+ * header_config() must be called before this function.
+ * 
+ * In order for the group end to be successful, there must be exactly
+ * one element left in the stack group
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if improper group closing
+ */
 static int end_group(void) {
-  printf("end group\n");
-  return 1;
+  
+  int status = 1;
+  
+  /* Check state */
+  if (!m_init) {
+    abort();
+  }
+  if (m_group_count < 1) {
+    /* Shastina should make sure this doesn't happen */
+    abort();
+  }
+  
+  /* Check if stack height is exactly one */
+  if (stack_height() == 1) {
+    /* Stack height exactly one, so close the group */
+    m_group_count--;
+    
+  } else {
+    /* Stack height not exactly one, so improper group closing */
+    status = 0;
+  }
+  
+  /* Return status */
+  return status;
 }
+
+/*
+ * Called to push a number on the stack while interpreting the Shastina
+ * file.
+ * 
+ * header_config() must be called before this function.
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if stack overflow
+ */
 static int push_num(int32_t val) {
-  printf("num %d\n", (int) val);
-  return 1;
+  
+  int status = 1;
+  
+  /* Check state */
+  if (!m_init) {
+    abort();
+  }
+  
+  /* Check for overflow */
+  if (m_stack_count < MAX_STACK) {
+    /* No overflow, so push number */
+    (m_stack[m_stack_count]).val = val;
+    (m_stack[m_stack_count]).ra = -1;
+    (m_stack[m_stack_count]).rb = -1;
+    m_stack_count++;
+    
+  } else {
+    /* Stack overflow */
+    status = 0;
+  }
+  
+  /* Return status */
+  return status;
 }
 
 /*
@@ -149,13 +1118,40 @@ static void header_config(
     int     nostereo,
     int32_t frame_before,
     int32_t frame_after) {
-  /* @@TODO: */
-  printf("header_config %d %d %d %d %d\n",
-          (int) rate,
-          (int) sqamp,
-          nostereo,
-          (int) frame_before,
-          (int) frame_after);
+  
+  /* Check state */
+  if (m_init) {
+    abort();
+  }
+  
+  /* Check parameters */
+  if ((rate != 48000) && (rate != 44100)) {
+    abort();
+  }
+  if ((sqamp < 1) || (frame_before < 0) || (frame_after < 0)) {
+    abort();
+  }
+  
+  /* Set initialization flag */
+  m_init = 1;
+  
+  /* Set parameter values */
+  m_rate = rate;
+  m_sqamp = sqamp;
+  if (nostereo) {
+    m_nostereo = 1;
+  } else {
+    m_nostereo = 0;
+  }
+  m_frame_before = frame_before;
+  m_frame_after = frame_after;
+  
+  /* Initialize stacks */
+  m_group_count = 0;
+  m_stack_count = 0;
+  
+  memset(m_group_stack, 0, MAX_GROUP * sizeof(int32_t));
+  memset(m_stack, 0, MAX_STACK * sizeof(STACK_REC));
 }
 
 /*
@@ -692,7 +1688,13 @@ static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
     *pln = snparser_count(pp);
   }
   
-  /* @@TODO: empty stack check */
+  /* Check that stack is empty */
+  if (status && (m_stack_count > 0)) {
+    status = 0;
+    *per = ERR_REMAIN;
+    *pln = snparser_count(pp);
+  }
+  
   /* @@TODO: synthesize */
   
   /* Free parser if allocated */
@@ -800,6 +1802,34 @@ static const char *error_string(int code) {
     
     case ERR_GROUP:
       pResult = "Group closed improperly";
+      break;
+      
+    case ERR_BADOP:
+      pResult = "Unrecognized operation";
+      break;
+    
+    case ERR_OPPARAM:
+      pResult = "Operation doesn't have enough parameters";
+      break;
+    
+    case ERR_PARAMT:
+      pResult = "Wrong parameter type for operation";
+      break;
+    
+    case ERR_LAYERC:
+      pResult = "Invalid parameter count for layer op";
+      break;
+    
+    case ERR_BADT:
+      pResult = "t parameter value is negative";
+      break;
+    
+    case ERR_BADFRAC:
+      pResult = "Fraction parameter value out of range";
+      break;
+    
+    case ERR_REMAIN:
+      pResult = "Elements remaining on stack at end";
       break;
     
     case (ERR_SN_MAX+SNERR_IOERR):
