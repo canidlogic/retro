@@ -1,0 +1,120 @@
+%retro-synth;
+
+# Example Shastina file for Retro synthesizer.
+#
+# The tokens are case-sensitive.
+#
+# The first command must be a meta command "retro-synth".
+#
+# Then come configuration commands, show below.  The configuration
+# commands must come before anything else in the file.  The
+# configuration commands may be in any order.
+
+# Configuration command establishing the sample rate.
+#
+# Valid values are:
+#
+#   48000 (Hz)
+#   44100 (Hz)
+#
+# This configuration command is required.
+#
+%rate 48000;
+
+# Configuration command establishing the output amplitude.
+#
+# This must be in range 1-32767.
+#
+# This configuration command is required.
+#
+%sqamp 20000;
+
+# If you want to generate a non-stereo file, include the configuration
+# command that is commented-out below.
+#
+# All stereo positioning will be ignored and the output will be
+# single-channel if this configuration command is included.
+#
+# %nostereo;
+
+# By default, one second of silence is written before and after the
+# synthesized sound.  If you want to change that, you can optionally
+# use the configuration command that is commented-out below to specify
+# the before and after times in sample counts.  Zero is valid for either
+# or both.
+#
+# %frame 48000 48000;
+
+# After the configuration commands comes the main part of the file.
+
+# You can define layers like this:  (Layers are one-indexed.)
+[
+  0 512 lc,       # Constant intensity 512/1024 @ sample 0
+  48000 512 0 lr, # Ramp 512/1024 -> 0/1024 @ sample 48000
+  50000 1024 lc   # Constant intensity 1024/1024 @ sample 50000
+
+] 1024 1 layer  # Layer 1 definition, 1024/1024 multiplier
+
+# You can also derive layers from other layers using a different
+# multiplier.  The graph objects will be shared.
+#
+# The following derives layer 2 from layer 1, using a new multiplier of
+# 512/1024 against the graph of layer 1.
+#
+512 1 2 derive_layer
+
+# You can define instruments like this:  (Instruments are one-indexed.)
+#
+1024        # Maximum intensity 1024/1024
+256         # Minimum intensity 256/1024
+10          # Attack time in milliseconds
+10          # Decay time in milliseconds
+512         # Sustain level 512/1024
+10          # Release time in milliseconds
+  1 instr   # Define instrument 1
+
+# You can duplicate the definition of an instrument.  The ADSR envelope
+# is shared between the two instruments:
+#
+1 2 instr_dup # Duplicate instrument 1 as instrument 2
+
+# You can change instrument definitions.  Change max/min intensities
+# like this:
+#
+512 256 2 instr_maxmin  # Change max/min on instrument 2
+
+# All instruments have stereo position in center when they are first
+# defined.  To get other stereo positions, you must change the stereo
+# position after definition.
+#
+# If %nostereo; was specified as a configuration command, then stereo
+# positioning will be ignored and everything will be single-channel.
+
+-512 0 1024 12 1 instr_field
+# Set stereo field (512/1024) left to (1024/1024) right from middle C
+# to one octave above on instrument 1
+
+0 2 instr_stereo
+# Set constant center stereo position on instrument 2
+
+# You also give note definitions here.  The t values and dur values are
+# in samples.  t offsets do not include the silence frames defined by
+# the %frame; command.
+#
+# Notes may be given in any order.  Nothing is actually synthesized
+# until the full Shastina file has been interpreted.  This also means
+# that instrument and layer definitions use the instrument and layer
+# state at the end of the Shastina file, NOT when the note is first
+# defined.
+#
+# It is also acceptable to define instruments and layers after the notes
+# have been defined.
+
+0 48000 9 1 2 n
+# Define note @ t=0, for 48000 samples, A-440, instrument 1, layer 2
+
+# The full synthesizer state at the end of the file is used to generate
+# the resulting output.
+
+# End of file marker
+|;
