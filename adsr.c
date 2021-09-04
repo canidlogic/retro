@@ -382,8 +382,7 @@ int16_t adsr_mul(
   if (pa == NULL) {
     abort();
   }
-  if ((t < 0) || (dur < 1) ||
-      (intensity < 0) || (intensity > ADSR_MAXVAL)) {
+  if ((t < 0) || (dur < 1)) {
     abort();
   }
   
