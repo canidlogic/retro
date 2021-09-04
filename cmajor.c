@@ -484,7 +484,7 @@ int main(int argc, char *argv[]) {
   /* Call through */
   if (status) {
     if (!cmajor(argv[1], rate, amp,
-                  0.25, 250.0, 250.0, 0.5, 250.0, 0.0, 0.0)) {
+                  0.25, 10.0, 500.0, 0.5, 100.0, 0.0, 0.0)) {
       status = 0;
       fprintf(stderr, "%s: Couldn't open output file!\n", pModule);
     }
