@@ -7,7 +7,7 @@
  * WAV writer module of the retro synthesizer.
  */
 
-#include <stddef.h>
+#include "retrodef.h"
 
 /*
  * Flags for wavwrite_init().
