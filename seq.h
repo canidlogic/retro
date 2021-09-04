@@ -7,7 +7,7 @@
  * Sequencer module of Retro synthesizer.
  */
 
-#include <stdint.h>
+#include "retrodef.h"
 #include "instr.h"
 #include "layer.h"
 #include "sqwave.h"
