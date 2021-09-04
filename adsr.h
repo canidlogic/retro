@@ -5,6 +5,11 @@
  * adsr.h
  * 
  * The ADSR (Attack-Decay-Sustain-Release) module of the Retro synth.
+ * 
+ * Compilation
+ * ===========
+ * 
+ * May require the math library to be included (-lm).
  */
 
 #include <stddef.h>
