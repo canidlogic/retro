@@ -9,7 +9,6 @@
 #include "sqwave.h"
 
 #include <math.h>
-#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -486,7 +485,7 @@ void sqwave_init(double amp, int32_t samprate) {
   if (!(amp > 0.0)) {
     abort();
   }
-  if ((samprate != SQWAVE_RATE_CD) && (samprate != SQWAVE_RATE_DVD)) {
+  if ((samprate != RATE_CD) && (samprate != RATE_DVD)) {
     abort();
   }
   
@@ -504,9 +503,9 @@ void sqwave_init(double amp, int32_t samprate) {
   memset(m_sqwave_table, 0, SQWAVE_KEY_COUNT * sizeof(SQWAVE_WAVREC));
   
   /* Determine frequency limit depending on sample rate */
-  if (samprate == SQWAVE_RATE_CD) {
+  if (samprate == RATE_CD) {
     flim = SQWAVE_FLIMIT_CD;
-  } else if (samprate == SQWAVE_RATE_DVD) {
+  } else if (samprate == RATE_DVD) {
     flim = SQWAVE_FLIMIT_DVD;
   } else {
     /* Unrecognized sample rate */
