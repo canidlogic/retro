@@ -76,5 +76,12 @@ void stereo_flatten(void);
 void stereo_image(int16_t s, const STEREO_POS *psp, STEREO_SAMP *pss);
 
 /* @@TODO: */
+void stereo_setField(
+    STEREO_POS * psp,
+    int32_t      low_pos,
+    int32_t      low_pitch,
+    int32_t      high_pos,
+    int32_t      high_pitch);
+void stereo_setPos(STEREO_POS *psp, int32_t pos);
 
 #endif
