@@ -228,6 +228,16 @@ static int cmajor(
     /* Compute length of envelope */
     plenx = adsr_length(pa, plen);
     
+    /* Attempt to abridge pitch length to account for additional
+     * envelope space, if necessary */
+    if (plenx > plen) {
+      plen = plen - (plenx - plen);
+      if (plen < 1) {
+        plen = 1;
+      }
+      plenx = adsr_length(pa, plen);
+    }
+    
     /* Write the ascending scale */
     for(p = 0; p < 8; p++) {
       
@@ -484,7 +494,7 @@ int main(int argc, char *argv[]) {
   /* Call through */
   if (status) {
     if (!cmajor(argv[1], rate, amp,
-                  0.25, 10.0, 500.0, 0.5, 100.0, 0.0, 0.0)) {
+                  0.25, 5.0, 5.0, 0.9, 5.0, 0.0, 0.0)) {
       status = 0;
       fprintf(stderr, "%s: Couldn't open output file!\n", pModule);
     }
