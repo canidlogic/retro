@@ -12,8 +12,7 @@
  * May require the math library to be included (-lm).
  */
 
-#include <stddef.h>
-#include <stdint.h>
+#include "retrodef.h"
 
 /*
  * The maximum value for ADSR time durations.
@@ -40,16 +39,12 @@ typedef struct ADSR_OBJ_TAG ADSR_OBJ;
  * transformed into a sample count this value would exceed ADSR_MAXTIME,
  * the duration is shortened to ADSR_MAXTIME.
  * 
- * The envelope (excluding the sustain period) is cached in memory with
- * two bytes per sample, so be cautious of specifying long attack,
- * decay, or release times.
- * 
  * sustain is the sustain level multiplier.  It must be finite and in
  * range [0.0, 1.0].  If it is 1.0, then t_decay is ignored and the
- * decay is set to zero.  If it is 0.0, then t_release is ignored and
- * the release is set to zero.
+ * decay is set to zero.
  * 
- * rate is the sampling rate, in Hz.  It must be either 44100 or 48000.
+ * rate is the sampling rate, in Hz.  It must be either RATE_CD or
+ * RATE_DVD.
  * 
  * Parameters:
  * 
