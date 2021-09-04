@@ -47,7 +47,6 @@
  * The math library may need to be included with -lm
  */
 
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,6 +54,7 @@
 #include "adsr.h"
 #include "stereo.h"
 #include "instr.h"
+#include "retrodef.h"
 #include "wavwrite.h"
 
 /*
@@ -122,7 +122,7 @@ static int soundbeep2(
   if ((sec < 1) || (sec > 60)) {
     abort();
   }
-  if ((rate != 48000) && (rate != 44100)) {
+  if ((rate != RATE_DVD) && (rate != RATE_CD)) {
     abort();
   }
   if ((amp < 16) || (amp > 32000)) {
@@ -130,13 +130,13 @@ static int soundbeep2(
   }
   
   /* Set WAV initialization flags and sqwave rate */
-  if (rate == 48000) {
+  if (rate == RATE_DVD) {
     wavflags = WAVWRITE_INIT_48000 | WAVWRITE_INIT_MONO;
-    sqrate = SQWAVE_RATE_DVD;
+    sqrate = rate;
   
-  } else if (rate == 44100) {
+  } else if (rate == RATE_CD) {
     wavflags = WAVWRITE_INIT_44100 | WAVWRITE_INIT_MONO;
-    sqrate = SQWAVE_RATE_CD;
+    sqrate = rate;
   
   } else {
     /* Unrecognized rate */
@@ -150,7 +150,7 @@ static int soundbeep2(
   pa = adsr_alloc(10.0, 10.0, 0.5, 10.0, rate);
   stereo_setPos(&sp, 0);
   stereo_flatten();
-  instr_define(0, INSTR_MAXINTENSITY, 0, pa, &sp);
+  instr_define(0, MAX_FRAC, 0, pa, &sp);
   
   /* Initialize WAV writer */
   if (!wavwrite_init(pPath, wavflags)) {
@@ -169,7 +169,7 @@ static int soundbeep2(
     dur = rate * sec;
     sfull = instr_length(0, dur);
     for(scount = 0; scount < sfull; scount++) {
-      instr_get(0, scount, dur, pitch, GRAPH_MAXVAL, &ssa);
+      instr_get(0, scount, dur, pitch, MAX_FRAC, &ssa);
       wavwrite_sample(ssa.left, ssa.right);
     }
   }
@@ -388,7 +388,7 @@ int main(int argc, char *argv[]) {
   }
   
   if (status) {
-    if ((rate != 48000) && (rate != 44100)) {
+    if ((rate != RATE_DVD) && (rate != RATE_CD)) {
       status = 0;
       fprintf(stderr, "%s: Rate parameter invalid!\n", pModule);
     }
