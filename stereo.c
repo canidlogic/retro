@@ -52,50 +52,6 @@ static void stereo_compute(int16_t s, int32_t pos, STEREO_SAMP *pss);
  * 
  *   pss - the stereo sample to compute
  */
-static void stereo_compute2(int16_t s, int32_t pos, STEREO_SAMP *pss) {
-  
-  /* Check parameters */
-  if ((pos < -MAX_FRAC) || (pos > MAX_FRAC) || (pss == NULL)) {
-    abort();
-  }
-  
-  /* Clear output structure */
-  memset(pss, 0, sizeof(STEREO_SAMP));
-  
-  /* Handle different position cases */
-  if (pos < 0) {
-    /* Left position -- convert pos to an intensity fraction for the
-     * right channel (remembering that pos is negative) */
-    pos = MAX_FRAC + pos;
-    
-    /* Compute right channel */
-    pss->right = (int16_t) ((pos * ((int32_t) s)) / MAX_FRAC);
-    
-    /* Left channel is full */
-    pss->left = s;
-    
-  } else if (pos > 0) {
-    /* Right position -- convert pos to an intensity fraction for the
-     * left channel */
-    pos = MAX_FRAC - pos;
-    
-    /* Compute left channel */
-    pss->left = (int16_t) ((pos * ((int32_t) s)) / MAX_FRAC);
-    
-    /* Right channel is full */
-    pss->right = s;
-    
-  } else if (pos == 0) {
-    /* Full center position -- just duplicate sample */
-    pss->left = s;
-    pss->right = s;
-    
-  } else {
-    /* Shouldn't happen */
-    abort();
-  }
-}
-
 static void stereo_compute(int16_t s, int32_t pos, STEREO_SAMP *pss) {
   
   int32_t mul_l = 0;
@@ -109,33 +65,20 @@ static void stereo_compute(int16_t s, int32_t pos, STEREO_SAMP *pss) {
   /* Clear output structure */
   memset(pss, 0, sizeof(STEREO_SAMP));
   
-  /* Handle different position cases */
+  /* Handle different position cases to determine left channel and right
+   * channel multipliers */
   if (pos < 0) {
-    /* Left position -- convert pos to an intensity fraction for the
-     * right channel (remembering that pos is negative) */
+    /* Left position (remembering that pos is negative) */
     mul_r = (MAX_FRAC + pos) / 2;
-    mul_l = MAX_FRAC - mul_l;
-    
-    /* Compute right channel */
-    
-    
-    /* Left channel is full */
-    
+    mul_l = MAX_FRAC - mul_r;
     
   } else if (pos > 0) {
-    /* Right position -- convert pos to an intensity fraction for the
-     * left channel */
+    /* Right position */
     mul_l = (MAX_FRAC - pos) / 2;
     mul_r = MAX_FRAC - mul_l;
     
-    /* Compute left channel */
-    
-    
-    /* Right channel is full */
-    
-    
   } else if (pos == 0) {
-    /* Full center position -- just duplicate sample */
+    /* Full center position */
     mul_l = (MAX_FRAC / 2);
     mul_r = MAX_FRAC - mul_l;
     
@@ -144,6 +87,7 @@ static void stereo_compute(int16_t s, int32_t pos, STEREO_SAMP *pss) {
     abort();
   }
   
+  /* Compute samples according to multipliers */
   pss->left = (int16_t) ((mul_l * ((int32_t) s)) / MAX_FRAC);
   pss->right = (int16_t) ((mul_r * ((int32_t) s)) / MAX_FRAC);
 }
