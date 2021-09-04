@@ -7,11 +7,8 @@
  * Instrument module of Retro synthesizer.
  */
 
-#include <stddef.h>
-#include <stdint.h>
-
 #include "adsr.h"
-#include "graph.h"
+#include "retrodef.h"
 #include "stereo.h"
 #include "sqwave.h"
 
@@ -22,13 +19,6 @@
  * setting this too high.  This must not exceed 65536.
  */
 #define INSTR_MAXCOUNT (4096)
-
-/*
- * The maximum intensity value for i_max and i_min parameters.
- * 
- * This must not exceed 65535.
- */
-#define INSTR_MAXINTENSITY (INT32_C(1024))
 
 /*
  * Clear the instrument register i.
@@ -53,10 +43,10 @@ void instr_clear(int32_t i);
  * defined.
  * 
  * i_max and i_min define the minimum and maximum intensity range of the
- * instrument.  Both must be in range [0, INSTR_MAXINTENSITY].  Also,
- * i_min must be less than or equal to i_max.  If i_min equals i_max,
- * then the instrument will have constant intensity.  If both values are
- * zero, then this call is equivalent to instr_clear().
+ * instrument.  Both must be in range [0, MAX_FRAC].  Also, i_min must
+ * be less than or equal to i_max.  If i_min equals i_max, then the
+ * instrument will have constant intensity.  If both values are zero,
+ * then this call is equivalent to instr_clear().
  * 
  * pa is the ADSR envelope to use for the instrument.  A reference will
  * be added to the ADSR envelope function, and the reference will be
@@ -116,10 +106,10 @@ void instr_dup(int32_t i_target, int32_t i_src);
  * call is ignored.
  * 
  * i_max and i_min define the minimum and maximum intensity range of the
- * instrument.  Both must be in range [0, INSTR_MAXINTENSITY].  Also,
- * i_min must be less than or equal to i_max.  If i_min equals i_max,
- * then the instrument will have constant intensity.  If both values are
- * zero, then this call is equivalent to instr_clear().
+ * instrument.  Both must be in range [0, MAX_FRAC].  Also, i_min must
+ * be less than or equal to i_max.  If i_min equals i_max, then the
+ * instrument will have constant intensity.  If both values are zero,
+ * then this call is equivalent to instr_clear().
  * 
  * Parameters:
  * 
@@ -221,7 +211,7 @@ int32_t instr_length(int32_t i, int32_t dur);
  * [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
  * 
  * amp is the amplitude of the sound at time offset t.  It must be in
- * range [0, GRAPH_MAXVAL].
+ * range [0, MAX_FRAC].
  * 
  * pss is the pointer to the structure to receive the computed stereo
  * sample.
