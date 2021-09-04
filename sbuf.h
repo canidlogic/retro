@@ -7,7 +7,7 @@
  * Sample buffer module of the Retro synthesizer.
  */
 
-#include <stdint.h>
+#include "retrodef.h"
 
 /*
  * Initialize the sample buffer module.
@@ -58,7 +58,7 @@ void sbuf_sample(int32_t l, int32_t r);
  * once.
  * 
  * amp is the target maximum amplitude in the output file.  This is in
- * range [0, INT16_MAX].  All 32-bit samples will be scaled to range
+ * range [1, INT16_MAX].  All 32-bit samples will be scaled to range
  * [-amp, amp] before being output.
  * 
  * The wavwrite_sample() function of the WAV writer module will be used
