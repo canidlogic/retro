@@ -62,6 +62,105 @@ struct ADSR_OBJ_TAG {
 };
 
 /*
+ * Local functions
+ * ===============
+ */
+
+/* Function prototypes */
+static void adsr_ramp(
+    int16_t * pv,
+    int32_t   i,
+    int32_t   len,
+    int16_t   begin_val,
+    int16_t   end_val);
+
+/*
+ * Create a ramp of integer values.
+ * 
+ * pv points to the array of integer values.
+ * 
+ * i is the index of the first array element in the ramp.  It must be
+ * zero or greater.
+ * 
+ * len is the number of elements in the ramp.  It must be zero or
+ * greater.
+ * 
+ * begin_val is the value at the start of the ramp, and end_val is the
+ * value at the end of the ramp.  They may have any values.
+ * 
+ * If len is zero, the function does nothing.  If len is one, a value
+ * halfway between begin and end is written to the index.  If len is
+ * greater than one, the first value of the ramp is begin_val, and the
+ * ramp ends just before end_val.
+ * 
+ * Parameters:
+ * 
+ *   pv - pointer to the array
+ * 
+ *   i - index of the first array element in the ramp
+ * 
+ *   len - length of the ramp
+ * 
+ *   begin_val - value at the beginning of the ramp
+ * 
+ *   end_val - value at the end of the ramp
+ */
+static void adsr_ramp(
+    int16_t * pv,
+    int32_t   i,
+    int32_t   len,
+    int16_t   begin_val,
+    int16_t   end_val) {
+  
+  double vf = 0.0;
+  int32_t r = 0;
+  int32_t x = 0;
+  
+  /* Check parameters */
+  if (pv == NULL) {
+    abort();
+  }
+  if ((i < 0) || (len < 0)) {
+    abort();
+  }
+  
+  /* Different ramps depending on length */
+  if (len == 1) {
+    /* Only one element -- compute halfway point */
+    vf = (((double) begin_val) + ((double) end_val)) / 2.0;
+    r = (int32_t) vf;
+    if (r > INT16_MAX) {
+      r = INT16_MAX;
+    } else if (r < -(INT16_MAX)) {
+      r = -(INT16_MAX);
+    }
+    
+    /* Set the element */
+    pv[i] = (int16_t) r;
+    
+  } else if (len > 1) {
+    /* More than one element -- compute the full ramp */
+    for(x = 0; x < len; x++) {
+      /* Compute progress */
+      vf = ((double) x) / ((double) len);
+      
+      /* Compute value */
+      vf = vf * (((double) end_val) - ((double) begin_val)) +
+                ((double) begin_val);
+      r = (int32_t) vf;
+      if (r > INT16_MAX) {
+        r = INT16_MAX;
+      } else if (r < -(INT16_MAX)) {
+        r = -(INT16_MAX);
+      }
+      
+      /* Set the element */
+      pv[i + x] = (int16_t) r;
+    }
+  }
+}
+
+/*
  * Public function implementations
  * ===============================
  * 
@@ -82,6 +181,7 @@ ADSR_OBJ *adsr_alloc(
   
   int32_t i_x = 0;
   int32_t i_n = 0;
+  int32_t v_s = 0;
   int32_t attack = 0;
   int32_t decay = 0;
   int32_t release = 0;
@@ -190,6 +290,14 @@ ADSR_OBJ *adsr_alloc(
     i_n = ADSR_MAXVAL;
   }
   
+  /* Compute integer sustain value */
+  v_s = (int32_t) (sustain * ((double) ADSR_MAXVAL));
+  if (v_s < 0) {
+    v_s = 0;
+  } else if (v_s > ADSR_MAXVAL) {
+    v_s = ADSR_MAXVAL;
+  }
+  
   /* Allocate object */
   pa = (ADSR_OBJ *) malloc(sizeof(ADSR_OBJ));
   if (pa == NULL) {
@@ -211,10 +319,17 @@ ADSR_OBJ *adsr_alloc(
   }
   memset(pa->penv, 0, pa->env_samp * sizeof(int16_t));
   
-  /* @@TODO: */
-  for(i_n = 0; i_n < pa->env_samp; i_n++) {
-    (pa->penv)[i_n] = (int16_t) ADSR_MAXVAL;
-  }
+  /* Set the envelope */
+  adsr_ramp(pa->penv, 0, attack,
+            0, (int16_t) ADSR_MAXVAL);
+  
+  adsr_ramp(pa->penv, attack, decay,
+            (int16_t) ADSR_MAXVAL, (int16_t) v_s);
+  
+  (pa->penv)[pa->env_mid] = (int16_t) v_s;
+  
+  adsr_ramp(pa->penv, pa->env_mid + 1, release,
+            (int16_t) v_s, 0);
   
   /* Return object */
   return pa;
