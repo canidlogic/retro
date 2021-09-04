@@ -154,10 +154,7 @@ static int cmajor(
   int status = 1;
   int wavflags = 0;
   int32_t sqrate = 0;
-  ADSR_PARAM ap;
-  
-  /* Initialize structures */
-  memset(&ap, 0, sizeof(ADSR_PARAM));
+  ADSR_OBJ *pa = NULL;
   
   /* Check parameters */
   if (pPath == NULL) {
@@ -214,8 +211,8 @@ static int cmajor(
     status = 0;
   }
   
-  /* Initialize ADSR parameters */
-  adsr_init(&ap, 1.0, i_min, attack, decay, sustain, release, rate);
+  /* Create ADSR envelope */
+  pa = adsr_alloc(1.0, i_min, attack, decay, sustain, release, rate);
   
   /* Write the scale */
   if (status) {
@@ -228,8 +225,8 @@ static int cmajor(
     /* Compute the length in samples of each pitch */
     plen = rate / 2;
     
-    /* Compute extended length of pitch, including the release time */
-    plenx = plen + adsr_extra(&ap);
+    /* Compute length of envelope */
+    plenx = adsr_length(pa, plen);
     
     /* Write the ascending scale */
     for(p = 0; p < 8; p++) {
@@ -246,7 +243,12 @@ static int cmajor(
         
         /* Transform by ADSR envelope */
         intensity = progress_mul * ((double) i) + progress_add;
-        s = adsr_mul(&ap, i, plen, intensity, s);
+        s = adsr_mul(
+                pa,
+                i,
+                plen,
+                (int32_t) (intensity * ((double) ADSR_MAXVAL)),
+                s);
         
         /* Write the sample */
         wavwrite_sample(s, s);
@@ -268,7 +270,12 @@ static int cmajor(
         
         /* Transform by ADSR envelope */
         intensity = progress_mul * ((double) i) + progress_add;
-        s = adsr_mul(&ap, i, plen, intensity, s);
+        s = adsr_mul(
+                pa,
+                i,
+                plen,
+                (int32_t) (intensity * ((double) ADSR_MAXVAL)),
+                s);
         
         /* Write the sample */
         wavwrite_sample(s, s);
@@ -287,6 +294,10 @@ static int cmajor(
   } else {
     wavwrite_close(WAVWRITE_CLOSE_RMFILE);
   }
+  
+  /* Release ADSR envelope */
+  adsr_free(pa);
+  pa = NULL;
   
   /* Return status */
   return status;
