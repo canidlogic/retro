@@ -12,19 +12,13 @@
  * May require the math library to be included (-lm).
  */
 
-#include <stdint.h>
+#include "retrodef.h"
 
 /*
  * The range of quantization amplitudes for the initialization function.
  */
 #define SQWAVE_AMP_MIN (16.0)
 #define SQWAVE_AMP_MAX (32000.0)
-
-/*
- * The sampling rates recognized by the initialization function.
- */
-#define SQWAVE_RATE_CD  (INT32_C(44100))  /* 44,100 Hz (CD audio)  */
-#define SQWAVE_RATE_DVD (INT32_C(48000))  /* 48,000 Hz (DVD audio) */
 
 /*
  * The minimum and maximum pitches that may be requested.
@@ -49,7 +43,7 @@
  * sample of (amp * result).
  * 
  * samprate is the sampling rate for the computed square waves.  It must
- * be one of the SQWAVE_RATE constants.
+ * be either the RATE_CD or RATE_DVD constant.
  * 
  * Parameters:
  * 
