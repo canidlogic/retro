@@ -21,11 +21,6 @@
 #define ADSR_MAXTIME (INT32_C(100000000))
 
 /*
- * The maximum integer intensity value in an envelope.
- */
-#define ADSR_MAXVAL (16384)
-
-/*
  * Structure prototype for ADSR_OBJ.
  */
 struct ADSR_OBJ_TAG;
@@ -34,19 +29,10 @@ typedef struct ADSR_OBJ_TAG ADSR_OBJ;
 /*
  * Create an ADSR envelope object.
  * 
- * The returned object must eventually be freed with adsr_free().
- * 
- * i_max and i_min are the maximum and minimum intensity multipliers for
- * the envelope.  Both must be finite values in range [0.0, 1.0].
- * Additionally, i_max must be greater than or equal to i_min, and i_max
- * may not be 0.0.
- * 
- * When a specific intensity is requested for the ADSR envelope, it will
- * first be mapped to the range defined by i_max and i_min, and then it
- * will be multiplied against the input sample value to transform the
- * intensity.  If i_max and i_min are equal, then the input sample will
- * always be transformed by a constant multiplier, regardless of what
- * the given intensity for a particular note is.
+ * The returned object starts out with a reference count of one.  Use
+ * adsr_addref() to add another reference, and use adsr_release() to
+ * decrease the reference count.  The object is freed when the reference
+ * count reaches zero.
  * 
  * The t_attack, t_decay, and t_release parameters are the times, in
  * milliseconds, of the attack, decay, and release periods.  They must
@@ -67,10 +53,6 @@ typedef struct ADSR_OBJ_TAG ADSR_OBJ;
  * 
  * Parameters:
  * 
- *   i_max - the maximum intensity multiplier
- * 
- *   i_min - the minimum intensity multiplier
- * 
  *   t_attack - the attack duration, in milliseconds
  * 
  *   t_decay - the decay duration, in milliseconds
@@ -82,8 +64,6 @@ typedef struct ADSR_OBJ_TAG ADSR_OBJ;
  *   rate - the sampling rate, in Hz
  */
 ADSR_OBJ *adsr_alloc(
-    double       i_max,
-    double       i_min,
     double       t_attack,
     double       t_decay,
     double       sustain,
@@ -91,15 +71,34 @@ ADSR_OBJ *adsr_alloc(
     int32_t      rate);
 
 /*
- * Free a given ADSR envelope object.
+ * Add a reference to the given ADSR envelope object.
  * 
- * pa points to the object to free.  If it is NULL, the call is ignored.
+ * pa points to the object to add a reference to.  If it is NULL, the
+ * call is ignored.
+ * 
+ * If this call causes the reference count to overflow, a fault occurs.
+ * This only occurs if there are billions of references.
  * 
  * Parameters:
  * 
- *   pa - the ADSR envelope object to free, or NULL
+ *   pa - the ADSR envelope object to add a reference to, or NULL
  */
-void adsr_free(ADSR_OBJ *pa);
+void adsr_addref(ADSR_OBJ *pa);
+
+/*
+ * Release a reference from a given ADSR envelope object.
+ * 
+ * pa points to the object to release.  If it is NULL, the call is
+ * ignored.
+ * 
+ * If this call causes the reference count to drop to zero, the object
+ * is freed.
+ * 
+ * Parameters:
+ * 
+ *   pa - the ADSR envelope object to release, or NULL
+ */
+void adsr_release(ADSR_OBJ *pa);
 
 /*
  * Given an event duration in samples, get the ADSR envelope length in
@@ -137,11 +136,6 @@ int32_t adsr_length(ADSR_OBJ *pa, int32_t dur);
  * is the return value of adsr_length() for dur.  Any t value greater
  * than this range will result in a sample value of zero.
  * 
- * intensity is the intensity of the event at time offset t.  It must be
- * in range [0, ADSR_MAXVAL], where zero maps to the minimum intensity
- * multiplier for this envelope and ADSR_MAXVAL maps to the maximum
- * intensity multiplier for this envelope.
- * 
  * s is the input sample to transform by the ADSR envelope.  The return
  * value is the transformed sample.
  * 
@@ -153,8 +147,6 @@ int32_t adsr_length(ADSR_OBJ *pa, int32_t dur);
  * 
  *   dur - the duration of the event in samples
  * 
- *   intensity - the intensity at time t
- * 
  *   s - the sample to transform
  * 
  * Return:
@@ -165,7 +157,6 @@ int16_t adsr_mul(
     ADSR_OBJ * pa,
     int32_t    t,
     int32_t    dur,
-    int32_t    intensity,
     int16_t    s);
 
 #endif
