@@ -9,7 +9,6 @@
 #include "seq.h"
 #include "sbuf.h"
 #include "stereo.h"
-#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
