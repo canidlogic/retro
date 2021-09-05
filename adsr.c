@@ -60,103 +60,6 @@ struct ADSR_OBJ_TAG {
 };
 
 /*
- * Local functions
- * ===============
- */
-
-/* Prototypes */
-static int32_t adsr_compute(ADSR_OBJ *pa, int32_t t, int32_t dur);
-
-/*
- * Compute the ADSR envelope multiplier for a given t and duration.
- * 
- * pa is the ADSR envelope.
- * 
- * t is the offset from the start of the envelope in samples.  It must
- * be zero or greater.
- * 
- * dur is the duration of the event in samples.  It must be at least
- * one.  The duration of the event is not necessarily the same as the
- * duration of the envelope.
- * 
- * The return value is a multiplier in range [0, MAX_FRAC].
- * 
- * Parameters:
- * 
- *   pa - the ADSR envelope
- * 
- *   t - the t offset
- * 
- *   dur - the duration
- * 
- * Return:
- * 
- *   the ADSR multiplier
- */
-static int32_t adsr_compute(ADSR_OBJ *pa, int32_t t, int32_t dur) {
-  
-  int32_t mv = 0;
-  int32_t offset = 0;
-  int32_t scale = 0;
-  
-  /* Check parameters */
-  if (pa == NULL) {
-    abort();
-  }
-  if ((t < 0) || (dur < 1)) {
-    abort();
-  }
-  
-  /* Determine the envelope multiplier value depending on where in the
-   * envelope we are */
-  if (t >= dur) {
-    /* Beyond the duration, so we are releasing -- compute offset */
-    offset = t - dur;
-    
-    /* Check whether beyond envelope */
-    if (offset >= pa->release) {
-      /* Beyond the envelope, so multiplier is just zero */
-      mv = 0;
-    
-    } else {
-      /* Not beyond the envelope; recursively determine the scale of the
-       * release from the envelope multiplier just before the release
-       * period */
-      scale = adsr_compute(pa, dur - 1, dur);
-    
-      /* Compute the envelope multiplier */
-      mv = (int32_t)
-            ((((int64_t) (pa->release - offset)) * ((int64_t) scale)) /
-              ((int64_t) pa->release));
-    }
-  
-  } else if (t < pa->attack) {
-    /* During the attack -- offset is t */
-    offset = t;
-    
-    /* Compute the envelope multiplier */
-    mv = (int32_t) ((((int64_t) offset) * ((int64_t) MAX_FRAC)) /
-                      ((int64_t) pa->attack));
-    
-  } else if (t < pa->attack + pa->decay) {
-    /* During the decay -- compute the offset */
-    offset = t - pa->attack;
-    
-    /* Compute the envelope multiplier */
-    mv = (int32_t) (((((int64_t) (pa->decay - offset)) *
-                      ((int64_t) (MAX_FRAC - pa->sustain))) /
-                    ((int64_t) pa->decay)) + pa->sustain);
-    
-  } else {
-    /* During the sustain -- just use sustain level */
-    mv = pa->sustain;
-  }
-  
-  /* Return the multiplier value */
-  return mv;
-}
-
-/*
  * Public function implementations
  * ===============================
  * 
@@ -324,6 +227,72 @@ int32_t adsr_length(ADSR_OBJ *pa, int32_t dur) {
   
   /* Return the computed duration */
   return (int32_t) d;
+}
+
+/*
+ * adsr_compute function.
+ */
+int32_t adsr_compute(ADSR_OBJ *pa, int32_t t, int32_t dur) {
+  
+  int32_t mv = 0;
+  int32_t offset = 0;
+  int32_t scale = 0;
+  
+  /* Check parameters */
+  if (pa == NULL) {
+    abort();
+  }
+  if ((t < 0) || (dur < 1)) {
+    abort();
+  }
+  
+  /* Determine the envelope multiplier value depending on where in the
+   * envelope we are */
+  if (t >= dur) {
+    /* Beyond the duration, so we are releasing -- compute offset */
+    offset = t - dur;
+    
+    /* Check whether beyond envelope */
+    if (offset >= pa->release) {
+      /* Beyond the envelope, so multiplier is just zero */
+      mv = 0;
+    
+    } else {
+      /* Not beyond the envelope; recursively determine the scale of the
+       * release from the envelope multiplier just before the release
+       * period */
+      scale = adsr_compute(pa, dur - 1, dur);
+    
+      /* Compute the envelope multiplier */
+      mv = (int32_t)
+            ((((int64_t) (pa->release - offset)) * ((int64_t) scale)) /
+              ((int64_t) pa->release));
+    }
+  
+  } else if (t < pa->attack) {
+    /* During the attack -- offset is t */
+    offset = t;
+    
+    /* Compute the envelope multiplier */
+    mv = (int32_t) ((((int64_t) offset) * ((int64_t) MAX_FRAC)) /
+                      ((int64_t) pa->attack));
+    
+  } else if (t < pa->attack + pa->decay) {
+    /* During the decay -- compute the offset */
+    offset = t - pa->attack;
+    
+    /* Compute the envelope multiplier */
+    mv = (int32_t) (((((int64_t) (pa->decay - offset)) *
+                      ((int64_t) (MAX_FRAC - pa->sustain))) /
+                    ((int64_t) pa->decay)) + pa->sustain);
+    
+  } else {
+    /* During the sustain -- just use sustain level */
+    mv = pa->sustain;
+  }
+  
+  /* Return the multiplier value */
+  return mv;
 }
 
 /*
