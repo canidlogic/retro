@@ -22,12 +22,18 @@
 
 /*
  * The different kinds of operator functions available.
+ * 
+ * GENERATOR_F_MINVAL and GENERATOR_F_MAXVAL are the minimum and maximum
+ * valid values.  They should be kept updated appropriately.
  */
 #define GENERATOR_F_SINE      (1)   /* Sine wave function     */
 #define GENERATOR_F_SQUARE    (2)   /* Square wave function   */
 #define GENERATOR_F_TRIANGLE  (3)   /* Triangle wave function */
 #define GENERATOR_F_SAWTOOTH  (4)   /* Sawtooth wave function */
 #define GENERATOR_F_NOISE     (5)   /* White noise function   */
+
+#define GENERATOR_F_MINVAL (1)
+#define GENERATOR_F_MAXVAL (5)
 
 /*
  * Type declarations
@@ -118,6 +124,20 @@ typedef struct {
    */
   int32_t ny_limit;
   
+  /*
+   * The maximum number of sine waves that can be used for approximating
+   * non-sine functions.
+   * 
+   * Must be zero or greater.  If it is one, non-sine functions will
+   * just be approximated as sine waves.  Greater values add harmonics.
+   * The special value of zero means a raw waveform, which is fast to
+   * compute.  Note that raw wave forms will have aliasing distortion if
+   * mixed directly into sound output.
+   * 
+   * Ignored for SINE and NOISE functions.
+   */
+  int32_t hlimit;
+  
 } GENERATOR_OPDATA;
 
 /*
@@ -135,8 +155,9 @@ typedef struct {
  * map.  For NOISE type of operators, freq is ignored.  For the other
  * operator functions, the actual frequency of the operator is
  * determined by multiplying the giving freq parameter to the freq_mul
- * parameter that was passed when the operator was constructed.  This
- * parameter must be finite and greater than zero.
+ * parameter and then adding to the frequency boost that was passed when
+ * the operator was constructed.  This parameter must be finite and
+ * greater than zero.
  * 
  * dur is the duration in samples of the event being rendered.  This is
  * necessary to use the ADSR envelope.  It must be greater than zero.
@@ -152,6 +173,22 @@ typedef struct {
  * operator is disabled and just outputs zero.  ny_limit should not be
  * higher than the Nyquist limit, which is half the sampling rate.
  * 
+ * hlimit is the maximum number of sine waves used for approximating
+ * non-sine functions.  It must be zero or greater, and it is ignored
+ * for NOISE and SINE operators.  If one, non-sine functions will be
+ * approximated with sine waves.  Values above one will add additional
+ * harmonics.  The higher the value, the more accurate the
+ * approximation, but the more computation that is required.  Sine wave
+ * harmonics that go above ny_limit will always be filtered out.
+ * 
+ * The special value of zero for hlimit means that non-sine functions
+ * will be "raw" and rendered perfectly, with infinite harmonics.  This
+ * is actually much faster to compute than the approximations.  However,
+ * if mixed directly into the audio output, it will be subject to
+ * aliasing distortion and filtering will be required to get rid of
+ * frequencies above the Nyquist limit.  Using raw waves for modulating
+ * other operators should work, though, and will be faster.
+ * 
  * Parameters:
  * 
  *   pod - the operator instance data structure to initialize
@@ -163,13 +200,17 @@ typedef struct {
  *   samp_rate - the sampling rate, in Hz
  * 
  *   ny_limit - the frequency limit, in Hz
+ * 
+ *   hlimit - maximum number of sine waves used for approximation, or
+ *   zero for raw wave
  */
 void generator_opdata_init(
     GENERATOR_OPDATA * pod,
     double             freq,
     int32_t            dur,
     int32_t            samp_rate,
-    int32_t            ny_limit);
+    int32_t            ny_limit,
+    int32_t            hlimit);
 
 /*
  * Construct an additive generator, which mixes together the output of
@@ -210,13 +251,16 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * freq_mul, fm_feedback, pFM, and fm_scale arguments are ignored,
  * because noise doesn't have any specific frequency.
  * 
- * freq_mul is a finite floating-point value that is greater than zero,
+ * freq_mul is a finite floating-point value that is zero or greater,
  * which determines the base frequency of the operator.  The actual
  * frequency of the operator is determined when constructing the
  * "instance data" of an operator with generator_opdata_init(), at which
  * point the frequency passed to that function will be multipled by this
- * freq_mul parameter to determine the actual frequency of the specific
- * instance of this operator.
+ * freq_mul parameter and then added to freq_boost to determine the
+ * actual frequency of the specific instance of this operator.
+ * 
+ * freq_boost is a finite floating-point value, which determines in
+ * combination with freq_mul the frequency of the operator.
  * 
  * base_amp is the base amplitude of the output.  It must be finite and
  * zero or greater.  The base amplitude is multplied by the ADSR
@@ -278,6 +322,8 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * 
  *   freq_mul - the multiplier used to generate the frequency
  * 
+ *   freq_boost - the frequency boost value
+ * 
  *   base_amp - the base amplitude of the operator
  * 
  *   pAmp - the ADSR envelope to use
@@ -303,6 +349,7 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
 GENERATOR *generator_op(
     int         fop,
     double      freq_mul,
+    double      freq_boost,
     double      base_amp,
     ADSR_OBJ  * pAmp,
     double      fm_feedback,
@@ -362,6 +409,10 @@ void generator_release(GENERATOR *pg);
  * 
  *   pg - the generator object to invoke
  * 
+ *   pods - the instance data structures
+ * 
+ *   pod_count - the number of instance data structures
+ * 
  *   t - the sample time offset
  * 
  * Return:
@@ -373,5 +424,49 @@ double generator_invoke(
     GENERATOR_OPDATA * pods,
     int32_t            pod_count,
     int32_t            t);
+
+/*
+ * Determine the total length in samples of the sound that is being
+ * rendered by a specific generator instance.
+ * 
+ * pg is the generator object to invoke.  pods points to an array of
+ * operator data structures, and pod_count determines how many operator
+ * data structures are present in this array.  The operator data
+ * structures must have previously been initialized with the function
+ * generator_opdata_init().  The operator data structures are the
+ * "instance data" for the generator map that store data specific to the
+ * particular sound being generated, while the data stored within the
+ * generator data structure is "class data" that is shared across all
+ * instances of the generator map.
+ * 
+ * The "instance data" for the generators already has the duration
+ * information of the rendered sound, so the duration does not need to
+ * be provided to this function.
+ * 
+ * If the provided generator is an operator, this function will query
+ * the ADSR envelope of the operator to find out how long the rendered
+ * sound actually is in samples and return that value.
+ * 
+ * If the provided generator is additive, this function will recursively
+ * query all component generators until it reaches operators, and then
+ * return the maximum length among the ADSR envelopes for all reached
+ * operators.
+ * 
+ * Parameters:
+ * 
+ *   pg - the generator object to invoke
+ * 
+ *   pods - the instance data structures
+ * 
+ *   pod_count - the number of instance data structures
+ * 
+ * Return:
+ * 
+ *   the total length in samples
+ */
+int32_t generator_length(
+    GENERATOR        * pg,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count);
 
 #endif
