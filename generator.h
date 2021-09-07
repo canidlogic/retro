@@ -110,20 +110,6 @@ typedef struct {
    */
   int32_t dur;
   
-  /*
-   * The sampling rate of the sound that is being rendered, in Hz.
-   * 
-   * Must be either RATE_DVD or RATE_CD.
-   */
-  int32_t samp_rate;
-  
-  /*
-   * The frequency limit, in Hz.
-   * 
-   * Ignored for NOISE functions.
-   */
-  int32_t ny_limit;
-  
 } GENERATOR_OPDATA;
 
 /*
@@ -149,16 +135,6 @@ typedef struct {
  * necessary to use the ADSR envelope.  It must be greater than zero.
  * This does NOT include any release samples added by the ADSR envelope.
  * 
- * samp_rate is the sampling rate of the audio that is being generated.
- * It must be either RATE_CD or RATE_DVD.  It is ignored for NOISE type
- * operators.
- * 
- * ny_limit is the frequency limit used to prevent aliasing artifacts.
- * This must be in range [0, samp_rate].  If at any point the operator's
- * actual output frequency reaches or exceeds ny_limit, then the
- * operator is disabled and just outputs zero.  ny_limit should not be
- * higher than the Nyquist limit, which is half the sampling rate.
- * 
  * Parameters:
  * 
  *   pod - the operator instance data structure to initialize
@@ -166,17 +142,11 @@ typedef struct {
  *   freq - the frequency that is being rendered, in Hz
  * 
  *   dur - the duration in samples of the event being rendered
- * 
- *   samp_rate - the sampling rate, in Hz
- * 
- *   ny_limit - the frequency limit, in Hz
  */
 void generator_opdata_init(
     GENERATOR_OPDATA * pod,
     double             freq,
-    int32_t            dur,
-    int32_t            samp_rate,
-    int32_t            ny_limit);
+    int32_t            dur);
 
 /*
  * Construct an additive generator, which mixes together the output of
@@ -276,14 +246,23 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * this parameter is zero, then pAM is ignored since there is no
  * amplitude modulation in this case.  Negative values are allowed.
  * 
+ * samp_rate is the sampling rate of the audio that is being generated.
+ * It must be either RATE_CD or RATE_DVD.  It is ignored for NOISE type
+ * operators.
+ * 
+ * ny_limit is the frequency limit used to prevent aliasing artifacts.
+ * This must be in range [0, samp_rate].  If at any point the operator's
+ * actual output frequency reaches or exceeds ny_limit, then the
+ * operator is disabled and just outputs zero.  ny_limit should not be
+ * higher than the Nyquist limit, which is half the sampling rate.
+ * 
  * hlimit is the maximum number of sine waves used for approximating
  * non-sine functions.  It must be zero or greater, and it is ignored
  * for NOISE and SINE operators.  If one, non-sine functions will be
  * approximated with sine waves.  Values above one will add additional
  * harmonics.  The higher the value, the more accurate the
  * approximation, but the more computation that is required.  Sine wave
- * harmonics that go above ny_limit for the specific instance will
- * always be filtered out.
+ * harmonics that go above ny_limit will always be filtered out.
  * 
  * The special value of zero for hlimit means that non-sine functions
  * will be "raw" and rendered perfectly, with infinite harmonics.  This
@@ -323,6 +302,10 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * 
  *   am_scale - the scaling multiplier to apply to the AM operator
  * 
+ *   samp_rate - the sampling rate, in Hz
+ *
+ *   ny_limit - the frequency limit, in Hz
+ * 
  *   hlimit - maximum number of sine waves used for approximation, or
  *   zero for raw wave
  * 
@@ -344,6 +327,8 @@ GENERATOR *generator_op(
     GENERATOR * pAM,
     double      fm_scale,
     double      am_scale,
+    int32_t     samp_rate,
+    int32_t     ny_limit,
     int32_t     hlimit,
     int32_t     pod_i);
 
