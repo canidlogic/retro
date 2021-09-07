@@ -156,6 +156,8 @@ static int enharmonic(const char *pPath) {
               NULL,               /* AM modulator */
               0.0,                /* FM modulator scale */
               0.0,                /* AM modulator scale */
+              SAMP_RATE,
+              20000,              /* ny_limit */
               0,                  /* hlimit */
               0);                 /* instance data offset */
     
@@ -171,6 +173,8 @@ static int enharmonic(const char *pPath) {
               NULL,               /* AM modulator */
               1.0,                /* FM modulator scale */
               0.0,                /* AM modulator scale */
+              SAMP_RATE,
+              20000,              /* ny_limit */
               0,                  /* hlimit */
               1);                 /* instance data offset */
   }
@@ -180,15 +184,11 @@ static int enharmonic(const char *pPath) {
     generator_opdata_init(
               &(opd[0]),
               PITCH_FREQ,
-              DUR_SAMPLES,
-              SAMP_RATE,
-              20000);         /* ny_limit */
+              DUR_SAMPLES);
     generator_opdata_init(
               &(opd[1]),
               PITCH_FREQ,
-              DUR_SAMPLES,
-              SAMP_RATE,
-              20000);         /* ny_limit */
+              DUR_SAMPLES);
   }
   
   /* Compute the sound duration in samples */
