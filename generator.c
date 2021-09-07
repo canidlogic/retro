@@ -143,6 +143,7 @@ typedef struct {
    * Integer parameters.
    */
   int32_t pod_i;
+  int32_t hlimit;
   int fop;
   
 } OP_CLASS;
@@ -450,7 +451,7 @@ static double gen_op(
                   pod->w,
                   f,
                   pod->samp_rate,
-                  pod->hlimit,
+                  pc->hlimit,
                   pod->ny_limit);
         
       } else if (pc->fop == GENERATOR_F_TRIANGLE) {
@@ -458,7 +459,7 @@ static double gen_op(
                   pod->w,
                   f,
                   pod->samp_rate,
-                  pod->hlimit,
+                  pc->hlimit,
                   pod->ny_limit);
         
       } else if (pc->fop == GENERATOR_F_SAWTOOTH) {
@@ -466,7 +467,7 @@ static double gen_op(
                   pod->w,
                   f,
                   pod->samp_rate,
-                  pod->hlimit,
+                  pc->hlimit,
                   pod->ny_limit);
         
       } else if (pc->fop == GENERATOR_F_NOISE) {
@@ -676,8 +677,7 @@ void generator_opdata_init(
     double             freq,
     int32_t            dur,
     int32_t            samp_rate,
-    int32_t            ny_limit,
-    int32_t            hlimit) {
+    int32_t            ny_limit) {
   
   /* Check parameters */
   if (pod == NULL) {
@@ -698,9 +698,6 @@ void generator_opdata_init(
   if ((ny_limit < 0) || (ny_limit > samp_rate)) {
     abort();
   }
-  if (hlimit < 0) {
-    abort();
-  }
   
   /* Blank the structure */
   memset(pod, 0, sizeof(GENERATOR_OPDATA));
@@ -714,7 +711,6 @@ void generator_opdata_init(
   pod->dur = dur;
   pod->samp_rate = samp_rate;
   pod->ny_limit = ny_limit;
-  pod->hlimit = hlimit;
 }
 
 /*
@@ -784,6 +780,7 @@ GENERATOR *generator_op(
     GENERATOR * pAM,
     double      fm_scale,
     double      am_scale,
+    int32_t     hlimit,
     int32_t     pod_i) {
   
   OP_CLASS *pc = NULL;
@@ -815,6 +812,9 @@ GENERATOR *generator_op(
     abort();
   }
   if (!isfinite(am_scale)) {
+    abort();
+  }
+  if (hlimit < 0) {
     abort();
   }
   if (pod_i < 0) {
@@ -860,6 +860,7 @@ GENERATOR *generator_op(
   pc->pAM = pAM;
   pc->fm_scale = fm_scale;
   pc->am_scale = am_scale;
+  pc->hlimit = hlimit;
   pc->pod_i = pod_i;
   
   /* Add a reference to the ADSR envelope */
