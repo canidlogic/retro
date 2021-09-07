@@ -124,20 +124,6 @@ typedef struct {
    */
   int32_t ny_limit;
   
-  /*
-   * The maximum number of sine waves that can be used for approximating
-   * non-sine functions.
-   * 
-   * Must be zero or greater.  If it is one, non-sine functions will
-   * just be approximated as sine waves.  Greater values add harmonics.
-   * The special value of zero means a raw waveform, which is fast to
-   * compute.  Note that raw wave forms will have aliasing distortion if
-   * mixed directly into sound output.
-   * 
-   * Ignored for SINE and NOISE functions.
-   */
-  int32_t hlimit;
-  
 } GENERATOR_OPDATA;
 
 /*
@@ -173,22 +159,6 @@ typedef struct {
  * operator is disabled and just outputs zero.  ny_limit should not be
  * higher than the Nyquist limit, which is half the sampling rate.
  * 
- * hlimit is the maximum number of sine waves used for approximating
- * non-sine functions.  It must be zero or greater, and it is ignored
- * for NOISE and SINE operators.  If one, non-sine functions will be
- * approximated with sine waves.  Values above one will add additional
- * harmonics.  The higher the value, the more accurate the
- * approximation, but the more computation that is required.  Sine wave
- * harmonics that go above ny_limit will always be filtered out.
- * 
- * The special value of zero for hlimit means that non-sine functions
- * will be "raw" and rendered perfectly, with infinite harmonics.  This
- * is actually much faster to compute than the approximations.  However,
- * if mixed directly into the audio output, it will be subject to
- * aliasing distortion and filtering will be required to get rid of
- * frequencies above the Nyquist limit.  Using raw waves for modulating
- * other operators should work, though, and will be faster.
- * 
  * Parameters:
  * 
  *   pod - the operator instance data structure to initialize
@@ -200,17 +170,13 @@ typedef struct {
  *   samp_rate - the sampling rate, in Hz
  * 
  *   ny_limit - the frequency limit, in Hz
- * 
- *   hlimit - maximum number of sine waves used for approximation, or
- *   zero for raw wave
  */
 void generator_opdata_init(
     GENERATOR_OPDATA * pod,
     double             freq,
     int32_t            dur,
     int32_t            samp_rate,
-    int32_t            ny_limit,
-    int32_t            hlimit);
+    int32_t            ny_limit);
 
 /*
  * Construct an additive generator, which mixes together the output of
@@ -310,6 +276,23 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * this parameter is zero, then pAM is ignored since there is no
  * amplitude modulation in this case.  Negative values are allowed.
  * 
+ * hlimit is the maximum number of sine waves used for approximating
+ * non-sine functions.  It must be zero or greater, and it is ignored
+ * for NOISE and SINE operators.  If one, non-sine functions will be
+ * approximated with sine waves.  Values above one will add additional
+ * harmonics.  The higher the value, the more accurate the
+ * approximation, but the more computation that is required.  Sine wave
+ * harmonics that go above ny_limit for the specific instance will
+ * always be filtered out.
+ * 
+ * The special value of zero for hlimit means that non-sine functions
+ * will be "raw" and rendered perfectly, with infinite harmonics.  This
+ * is actually much faster to compute than the approximations.  However,
+ * if mixed directly into the audio output, it will be subject to
+ * aliasing distortion and filtering will be required to get rid of
+ * frequencies above the Nyquist limit.  Using raw waves for modulating
+ * other operators should work, though, and will be faster.
+ * 
  * pod_i is an array index that is zero or greater.  When the function
  * generator_invoke() is used to invoke this operator generator, then
  * pod_i is the index within the pods array of the instance data for
@@ -340,6 +323,9 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * 
  *   am_scale - the scaling multiplier to apply to the AM operator
  * 
+ *   hlimit - maximum number of sine waves used for approximation, or
+ *   zero for raw wave
+ * 
  *   pod_i - the index of the instance data within the pods array
  * 
  * Return:
@@ -358,6 +344,7 @@ GENERATOR *generator_op(
     GENERATOR * pAM,
     double      fm_scale,
     double      am_scale,
+    int32_t     hlimit,
     int32_t     pod_i);
 
 /*
