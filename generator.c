@@ -143,7 +143,9 @@ typedef struct {
    * Integer parameters.
    */
   int32_t pod_i;
+  int32_t samp_rate;
   int32_t hlimit;
+  int32_t ny_limit;
   int fop;
   
 } OP_CLASS;
@@ -395,7 +397,7 @@ static double gen_op(
      * that is greater than zero and less than the frequency limit for
      * this operator; else, disable the operator and result is zero */
     if ((pc->fop == GENERATOR_F_NOISE) || 
-        (isfinite(f) && (f > 0.0) && (f < ((double) pod->ny_limit)))) {
+        (isfinite(f) && (f > 0.0) && (f < ((double) pc->ny_limit)))) {
       
       /* If we don't have the NOISE function, we need to update w
        * according to the frequency we just computed */
@@ -403,7 +405,7 @@ static double gen_op(
         /* The w_adv value is waves per sample; we compute this by
          * taking the frequency (waves per second) and then dividing by
          * the sampling rate (samples per second) */
-        w_adv = f / ((double) pod->samp_rate);
+        w_adv = f / ((double) pc->samp_rate);
         
         /* If we have FM feedback, add that to w_adv, properly scaled */
         if (pc->fm_feedback != 0.0) {
@@ -450,25 +452,25 @@ static double gen_op(
         nval = f_square(
                   pod->w,
                   f,
-                  pod->samp_rate,
+                  pc->samp_rate,
                   pc->hlimit,
-                  pod->ny_limit);
+                  pc->ny_limit);
         
       } else if (pc->fop == GENERATOR_F_TRIANGLE) {
         nval = f_triangle(
                   pod->w,
                   f,
-                  pod->samp_rate,
+                  pc->samp_rate,
                   pc->hlimit,
-                  pod->ny_limit);
+                  pc->ny_limit);
         
       } else if (pc->fop == GENERATOR_F_SAWTOOTH) {
         nval = f_sawtooth(
                   pod->w,
                   f,
-                  pod->samp_rate,
+                  pc->samp_rate,
                   pc->hlimit,
-                  pod->ny_limit);
+                  pc->ny_limit);
         
       } else if (pc->fop == GENERATOR_F_NOISE) {
         nval = f_noise();
@@ -675,9 +677,7 @@ static void free_op(void *pCustom) {
 void generator_opdata_init(
     GENERATOR_OPDATA * pod,
     double             freq,
-    int32_t            dur,
-    int32_t            samp_rate,
-    int32_t            ny_limit) {
+    int32_t            dur) {
   
   /* Check parameters */
   if (pod == NULL) {
@@ -692,12 +692,6 @@ void generator_opdata_init(
   if (dur < 1) {
     abort();
   }
-  if ((samp_rate != RATE_CD) && (samp_rate != RATE_DVD)) {
-    abort();
-  }
-  if ((ny_limit < 0) || (ny_limit > samp_rate)) {
-    abort();
-  }
   
   /* Blank the structure */
   memset(pod, 0, sizeof(GENERATOR_OPDATA));
@@ -709,8 +703,6 @@ void generator_opdata_init(
   pod->last = 0.0;
   pod->t = -1;
   pod->dur = dur;
-  pod->samp_rate = samp_rate;
-  pod->ny_limit = ny_limit;
 }
 
 /*
@@ -780,6 +772,8 @@ GENERATOR *generator_op(
     GENERATOR * pAM,
     double      fm_scale,
     double      am_scale,
+    int32_t     samp_rate,
+    int32_t     ny_limit,
     int32_t     hlimit,
     int32_t     pod_i) {
   
@@ -812,6 +806,12 @@ GENERATOR *generator_op(
     abort();
   }
   if (!isfinite(am_scale)) {
+    abort();
+  }
+  if ((samp_rate != RATE_CD) && (samp_rate != RATE_DVD)) {
+    abort();
+  }
+  if ((ny_limit < 0) || (ny_limit > samp_rate)) {
     abort();
   }
   if (hlimit < 0) {
@@ -860,6 +860,8 @@ GENERATOR *generator_op(
   pc->pAM = pAM;
   pc->fm_scale = fm_scale;
   pc->am_scale = am_scale;
+  pc->samp_rate = samp_rate;
+  pc->ny_limit = ny_limit;
   pc->hlimit = hlimit;
   pc->pod_i = pod_i;
   
