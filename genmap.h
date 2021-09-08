@@ -13,7 +13,7 @@
  * 
  * Compile with adsr and generator modules of Retro.
  * 
- * Also requires libshastina, beta version 0.9.2 or compatible.
+ * Also requires libshastina, beta version 0.9.3 or compatible.
  * 
  * May require the math library to be linked with -lm
  */
@@ -42,14 +42,6 @@
  * Type declarations
  * -----------------
  */
-
-/*
- * GENMAP_PASS structure prototype.
- * 
- * Definition given in implementation file.
- */
-struct GENMAP_PASS_TAG;
-typedef struct GENMAP_PASS_TAG GENMAP_PASS;
 
 /*
  * Structure storing the result of interpreting a generator map Shastina
@@ -111,59 +103,15 @@ typedef struct {
  */
 
 /*
- * Perform the first pass over a generator map Shastina script.
- * 
- * pIn is the Shastina source to read the Shastina script from.
- * 
- * perr points to a variable to receive an error code and pline points
- * to a variable to receive a line number.  See the errcode and linenum
- * fields in the GENMAP_RESULT structure for further information.
- * 
- * The returned pass object can then be used with genmap_run() to
- * actually build the generator map in a second pass.
- * 
- * The pass object should eventually be freed with genmap_freepass().
- * 
- * Parameters:
- * 
- *   pIn - the Shastina input source
- * 
- *   perr - pointer to variable to receive error code, or NULL
- * 
- *   pline - pointer to variable to receive error line number, or NULL
- * 
- * Return:
- * 
- *   a newly constructed pass object, or NULL if first pass failed
- */
-GENMAP_PASS *genmap_pass(SNSOURCE *pIn, int *perr, long *pline);
-
-/*
- * Free an allocated pass object.
- * 
- * Ignored if NULL is passed.
- * 
- * Parameters:
- * 
- *   pPass - the first-pass object to free
- */
-void genmap_freepass(GENMAP_PASS *pPass);
-
-/*
  * Interpret a generator map Shastina script.
  * 
  * pIn is the Shastina source to read the Shastina script from.  The
- * source should be reset back to the beginning of input so that this
- * is the second pass after genmap_pass().
- * 
- * pPass is the result of running the first-pass processor.  Use the
- * genmap_pass() function to perform the first pass.  You must pass over
- * the same source data twice, once with that function and once with
- * this function.  Caller still owns this structure, and it is still
- * caller's responsibility to free it.
+ * given source must support multipass or a fault occurs.
  * 
  * pResult is the structure to store the result of interpreting the
  * Shastina script in.  See that structure for further details.
+ * 
+ * samp_rate is the sampling rate.  It must be RATE_CD or RATE_DVD.
  * 
  * CAUTION:  Do not use a result structure more than once unless you
  * free any generator within it.  Otherwise, a memory leak will occur.
@@ -181,8 +129,8 @@ void genmap_freepass(GENMAP_PASS *pPass);
  */
 void genmap_run(
     SNSOURCE      * pIn,
-    GENMAP_PASS   * pPass,
-    GENMAP_RESULT * pResult);
+    GENMAP_RESULT * pResult,
+    int32_t         samp_rate);
 
 /*
  * Convert an error code in the GENMAP_RESULT structure to a string.
