@@ -124,16 +124,12 @@ static int soundbeep(
   int32_t edur = 0;
   double gv = 0.0;
   
-  int errnum = 0;
-  long linenum = 0;
-  
   FILE *fScript = NULL;
   SNSOURCE *psScript = NULL;
-  GENMAP_PASS *pPass = NULL;
   GENERATOR_OPDATA *pInstance = NULL;
   
   GENMAP_RESULT gmr;
-  
+
   /* Initialize structures */
   memset(&gmr, 0, sizeof(GENMAP_RESULT));
   gmr.pRoot = NULL;
@@ -157,7 +153,7 @@ static int soundbeep(
   if (pScript == NULL) {
     abort();
   }
-  
+
   /* Open script file */
   if (status) {
     fScript = fopen(pScript, "rb");
@@ -166,48 +162,35 @@ static int soundbeep(
       fprintf(stderr, "%s: Can't open script file!\n", pModule);
     }
   }
-  
-  /* Open Shastina source around script file */
+
+  /* Open multipass Shastina source around script file and transfer
+   * ownership of file handle so that file handle will be closed when
+   * source is closed */
   if (status) {
-    psScript = snsource_file(fScript, 0);
+    psScript = snsource_stream(
+                fScript, SNSTREAM_OWNER | SNSTREAM_RANDOM);
+    fScript = NULL;
   }
-  
-  /* Perform first pass on script */
+
+  /* Interpret script */
   if (status) {
-    pPass = genmap_pass(psScript, &errnum, &linenum);
-    if (pPass == NULL) {
-      status = 0;
-      fprintf(stderr, "%s: First pass failed on script!\n", pModule);
-      fprintf(stderr, "Reason: %s\n", genmap_errstr(errnum));
-      if (linenum > 0) {
-        fprintf(stderr, "Line  : %ld\n", linenum);
-      }
-    }
-  }
-  
-  /* Rewind script and interpret it */
-  if (status) {
-    rewind(fScript);
-    genmap_run(psScript, pPass, &gmr);
+    genmap_run(psScript, &gmr, rate);
     if (gmr.errcode != GENMAP_OK) {
       status = 0;
-      fprintf(stderr, "%s: Second pass failed on script!\n", pModule);
+      fprintf(stderr, "%s: Script interpretation failed!\n", pModule);
       fprintf(stderr, "Reason: %s\n", genmap_errstr(gmr.errcode));
       if (gmr.linenum > 0) {
         fprintf(stderr, "Line  : %ld\n", gmr.linenum);
       }
     }
   }
-  
-  /* We can now close the Shastina source and the script file */
+
+  /* We can now close the Shastina source */
   if (status) {
     snsource_free(psScript);
     psScript = NULL;
-    
-    fclose(fScript);
-    fScript = NULL;
   }
-  
+
   /* Allocate instance data and initialize */
   if (status) {
     pInstance = (GENERATOR_OPDATA *) calloc(
@@ -221,12 +204,12 @@ static int soundbeep(
         &(pInstance[x]), freq, (msec * rate) / 1000);
     }
   }
-  
+
   /* Figure out total length of sound in samples */
   if (status) {
     edur = generator_length(gmr.pRoot, pInstance, gmr.icount);
   }
-  
+
   /* Set WAV initialization flags */
   if (status) {
     if (rate == RATE_DVD) {
@@ -260,7 +243,7 @@ static int soundbeep(
       sbuf_sample(0, 0);
     }
   }
-  
+
   /* Write the generated sound */
   if (status) {
     for(x = 0; x < edur; x++) {
@@ -272,11 +255,11 @@ static int soundbeep(
         gv = 0.0;
       }
       
-      if (!(gv <= amp)) {
-        s = amp;
+      if (!(gv <= INT32_MAX)) {
+        s = INT32_MAX;
       
-      } else if (!(gv >= -(amp))) {
-        s = -(amp);
+      } else if (!(gv >= INT32_MIN)) {
+        s = INT32_MIN;
         
       } else {
         s = (int32_t) floor(gv);
@@ -314,9 +297,6 @@ static int soundbeep(
   
   generator_release(gmr.pRoot);
   gmr.pRoot = NULL;
-  
-  genmap_freepass(pPass);
-  pPass = NULL;
   
   snsource_free(psScript);
   psScript = NULL;
