@@ -8,9 +8,50 @@
  */
 
 #include "genmap.h"
+#include "adsr.h"
+
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+
+/*
+ * Constants
+ * ---------
+ */
+
+/*
+ * GENVAR types.
+ */
+#define GENVAR_UNDEF  (0)
+#define GENVAR_INT    (1)
+#define GENVAR_FLOAT  (2)
+#define GENVAR_ATOM   (3)
+#define GENVAR_ADSR   (4)
+#define GENVAR_GENOBJ (5)
+
+/*
+ * VARCELL status values.
+ */
+#define VARCELL_UNDEF (0)
+#define VARCELL_VAR   (1)
+#define VARCELL_CONST (2)
+
+/*
+ * The initial and maximum capacities of the interpreter stack.
+ * 
+ * The interpreter stack starts out with a capacity of ISTACK_INIT and
+ * grows by doubling up to a limit of ISTACK_MAX.
+ */
+#define ISTACK_INIT   (16)
+#define ISTACK_MAX    (INT32_C(65535))
+
+/*
+ * The maximum number of nested groups during interpretation.
+ * 
+ * This determines the size of the group stack, so be careful about
+ * setting it to a large value.
+ */
+#define ISTACK_NEST   (32)
 
 /*
  * Type declarations
@@ -69,17 +110,275 @@ typedef struct {
 } NAME_DICT;
 
 /*
+ * GENVAR structure.
+ * 
+ * Stores stack variables, variable, and constant values.  Use the
+ * genvar_ functions to manipulate.
+ */
+typedef struct {
+  
+  /*
+   * The type stored in this structure.
+   * 
+   * Must be one of the GENVAR_ constants.
+   */
+  int vtype;
+  
+  /*
+   * The val field is a union of the different type possibilities.
+   */
+  union {
+    
+    /*
+     * Dummy field used for GENVAR_UNDEF.
+     */
+    int dummy;
+    
+    /*
+     * Integer value for GENVAR_INT.
+     */
+    int32_t ival;
+    
+    /*
+     * Double value for GENVAR_FLOAT.
+     */
+    double fval;
+    
+    /*
+     * Atom code for GENVAR_ATOM.
+     */
+    int atom;
+    
+    /*
+     * ADSR object reference for GENVAR_ADSR.
+     */
+    ADSR_OBJ *pADSR;
+    
+    /*
+     * Generator object reference for GENVAR_GENOBJ.
+     */
+    GENERATOR *pGen;
+    
+  } val;
+  
+} GENVAR;
+
+/*
+ * VARCELL structure.
+ * 
+ * Used in the bank of variables and constants.
+ */
+typedef struct {
+  
+  /*
+   * One of the VARCELL_ constants indicating the status of this cell.
+   */
+  int status;
+  
+  /*
+   * The value held in this cell.
+   * 
+   * If status is VARCELL_UNDEF, this value is always undef.
+   * 
+   * If status is VARCELL_VAR, then this value is read/write.
+   * 
+   * If status is VARCELL_CONST, then this value is read-only.
+   */
+  GENVAR gv;
+  
+} VARCELL;
+
+/*
+ * ISTATE structure.
+ * 
+ * Stores the interpreter state.
+ */
+typedef struct {
+  
+  /*
+   * Name dictionary that maps variable and constant names to indices in
+   * the register bank.
+   * 
+   * Owned by the ISTATE structure.
+   */
+  NAME_DICT *pDict;
+  
+  /*
+   * The register bank of variables and constants.
+   * 
+   * This is an array of VARCELL structures.  The length of the array is
+   * the count of names in the pDict dictionary.  If this count is zero,
+   * this pointer is NULL.
+   * 
+   * The pDict dictionary determines how variables and constants map to
+   * indices in this register bank by their names.
+   */
+  VARCELL *pBank;
+  
+  /*
+   * The current capacity of the interpreter stack, in GENVAR
+   * structures.
+   */
+  int32_t cap;
+  
+  /*
+   * The current height of the interpreter stack, in GENVAR structures.
+   */
+  int32_t height;
+  
+  /*
+   * The interpreter stack.
+   * 
+   * This is an array of GENVAR structures.  The length of the array is
+   * determined by the cap field.  If cap is zero, this pointer is NULL.
+   * 
+   * The first allocation will be for ISTACK_INIT capacity.  The stack
+   * grows by doubling up to a maximum of ISTACK_MAX capacity.
+   * 
+   * The height field determines how many elements are currently on the
+   * stack.  The stack grows upwards.
+   */
+  GENVAR *pStack;
+  
+  /*
+   * The current height of the grouping stack, in integer values.
+   */
+  int32_t gheight;
+  
+  /*
+   * The grouping stack.
+   * 
+   * The number of elements on this stack is determined by the gheight
+   * field.  The stack grows upwards.
+   * 
+   * Each time a Shastina group begins, the current height of the
+   * interpreter stack is pushed on top of gstack.  All interpreter
+   * stack items up to the height stored on top of gstack are invisible
+   * to the interpreted script until the group is closed.  If gstack is
+   * empty, no items are hidden from the interpreter stack.
+   * 
+   * Each time a Shastina group ends, a check is made that the current
+   * interpreter stack height is one greater than the stack height
+   * stored on top of gstack, causing a group check error if this is not
+   * the case.  The top of the group stack is then popped, which unhides
+   * any stack elements that were hidden by the group.
+   * 
+   * The nesting depth is limited by ISTACK_NEST.
+   */
+  int32_t gstack[ISTACK_NEST];
+  
+} ISTATE;
+
+/*
  * Local functions
  * ---------------
  */
 
 /* Prototypes */
+static void genvar_init(GENVAR *pgv);
+static void genvar_clear(GENVAR *pgv);
+static void genvar_copy(GENVAR *pDest, const GENVAR *pSrc);
+static int genvar_type(const GENVAR *pgv);
+
+static int32_t genvar_getInt(const GENVAR *pgv);
+static double genvar_getFloat(const GENVAR *pgv);
+static int genvar_getAtom(const GENVAR *pgv);
+static ADSR_OBJ *genvar_getADSR(const GENVAR *pgv);
+static GENERATOR *genvar_getGen(const GENVAR *pgv);
+
+static void genvar_setInt(GENVAR *pgv, int32_t v);
+static void genvar_setFloat(GENVAR *pgv, double v);
+static void genvar_setAtom(GENVAR *pgv, int atom);
+static void genvar_setADSR(GENVAR *pgv, ADSR_OBJ *pADSR);
+static void genvar_setGen(GENVAR *pgv, GENERATOR *pGen);
+
+static ISTATE *istate_new(NAME_DICT *pNames);
+static void istate_free(ISTATE *ps);
+static int istate_define(
+          ISTATE * ps,
+    const char   * pName,
+          int      is_const,
+    const GENVAR * val,
+          int    * perr);
+static int istate_set(
+          ISTATE * ps,
+    const char   * pName,
+    const GENVAR * val,
+          int    * perr);
+static int istate_get(
+          ISTATE * ps,
+    const char   * pName,
+          GENVAR * pDest,
+          int    * perr);
+static int32_t istate_height(ISTATE *ps);
+static int istate_index(
+    ISTATE  * ps,
+    int32_t   i,
+    GENVAR  * pDest,
+    int     * perr);
+static int istate_pop(ISTATE *ps, int32_t count, int *perr);
+static int istate_push(ISTATE *ps, const GENVAR *pv, int *perr);
+static int istate_grouped(ISTATE *ps);
+static int istate_begin(ISTATE *ps, int *perr);
+static int istate_end(ISTATE *ps, int *perr);
+
 static void free_names(NAME_LINK *pNames);
 static NAME_LINK *gather_names(SNSOURCE *pIn, int *perr, long *pline);
 
 static int name_sort(const void *pa, const void *pb);
+static int name_search(const void *pa, const void *pb);
+
 static NAME_DICT *make_dict(NAME_LINK *pNames);
 static void free_dict(NAME_DICT *pd);
+static int32_t count_dict(NAME_DICT *pd);
+static int32_t name_index(NAME_DICT *pd, const char *pName);
+
+/* @@TODO: */
+static void genvar_init(GENVAR *pgv);
+static void genvar_clear(GENVAR *pgv);
+static void genvar_copy(GENVAR *pDest, const GENVAR *pSrc);
+static int genvar_type(const GENVAR *pgv);
+static int32_t genvar_getInt(const GENVAR *pgv);
+static double genvar_getFloat(const GENVAR *pgv);
+static int genvar_getAtom(const GENVAR *pgv);
+static ADSR_OBJ *genvar_getADSR(const GENVAR *pgv);
+static GENERATOR *genvar_getGen(const GENVAR *pgv);
+static void genvar_setInt(GENVAR *pgv, int32_t v);
+static void genvar_setFloat(GENVAR *pgv, double v);
+static void genvar_setAtom(GENVAR *pgv, int atom);
+static void genvar_setADSR(GENVAR *pgv, ADSR_OBJ *pADSR);
+static void genvar_setGen(GENVAR *pgv, GENERATOR *pGen);
+
+/* @@TODO: */
+static ISTATE *istate_new(NAME_DICT *pNames);
+static void istate_free(ISTATE *ps);
+static int istate_define(
+          ISTATE * ps,
+    const char   * pName,
+          int      is_const,
+    const GENVAR * val,
+          int    * perr);
+static int istate_set(
+          ISTATE * ps,
+    const char   * pName,
+    const GENVAR * val,
+          int    * perr);
+static int istate_get(
+          ISTATE * ps,
+    const char   * pName,
+          GENVAR * pDest,
+          int    * perr);
+static int32_t istate_height(ISTATE *ps);
+static int istate_index(
+    ISTATE  * ps,
+    int32_t   i,
+    GENVAR  * pDest,
+    int     * perr);
+static int istate_pop(ISTATE *ps, int32_t count, int *perr);
+static int istate_push(ISTATE *ps, const GENVAR *pv, int *perr);
+static int istate_grouped(ISTATE *ps);
+static int istate_begin(ISTATE *ps, int *perr);
+static int istate_end(ISTATE *ps, int *perr);
 
 /*
  * Release a linked-list of names.
@@ -274,6 +573,29 @@ static int name_sort(const void *pa, const void *pb) {
 }
 
 /*
+ * Comparison function between a name key and a name array entry.
+ * 
+ * Interface matches function pointer for bsearch().
+ */
+static int name_search(const void *pa, const void *pb) {
+  
+  const char *pKey = NULL;
+  const char **pe = NULL;
+  
+  /* Check parameters */
+  if ((pa == NULL) || (pb == NULL)) {
+    abort();
+  }
+  
+  /* Cast pointers */
+  pKey = (const char *) pa;
+  pe = (const char **) pb;
+  
+  /* Use string comparison */
+  return strcmp(pKey, *pe);
+}
+
+/*
  * Given a linked list of variable and constant names, turn it into a
  * name dictionary object.
  * 
@@ -422,6 +744,99 @@ static void free_dict(NAME_DICT *pd) {
 }
 
 /*
+ * Count the total number of names in a given name dictionary.
+ * 
+ * The count is zero or greater.
+ * 
+ * Parameters:
+ * 
+ *   pd - the dictionary to check
+ * 
+ * Return:
+ * 
+ *   the number of names in the dictionary
+ */
+static int32_t count_dict(NAME_DICT *pd) {
+  
+  /* Check parameter */
+  if (pd == NULL) {
+    abort();
+  }
+  if (pd->name_count < 0) {
+    abort();
+  }
+  
+  /* Return count */
+  return pd->name_count;
+}
+
+/*
+ * Given a variable or constant name, look it up in the given name
+ * dictionary and return a unique index value for the name.
+ * 
+ * The index value will be in range [0, count - 1], where count is the
+ * total number of names, determined by count_dict().
+ * 
+ * If the given name is not found in the dictionary, -1 is returned.
+ * 
+ * Parameters:
+ * 
+ *   pd - the dictionary to check
+ * 
+ * Return:
+ * 
+ *   a unique index for the name, or -1 if the name was not found
+ */
+static int32_t name_index(NAME_DICT *pd, const char *pName) {
+  
+  int32_t result = 0;
+  char **ppn = NULL;
+  
+  /* Check parameters */
+  if ((pd == NULL) || (pName == NULL)) {
+    abort();
+  }
+  
+  /* Handle different cases depending on name count */
+  if (pd->name_count < 1) {
+    /* The dictionary has no names, so always return -1 */
+    result = -1;
+    
+  } else if (pd->name_count == 1) {
+    /* The dictionary has a single name, so just check that name */
+    if (strcmp(pName, (pd->ppNames)[0]) == 0) {
+      /* Matches the one name */
+      result = 0;
+    } else {
+      /* Does not match the one name */
+      result = -1;
+    }
+    
+  } else {
+    /* The dictionary has multiple names, so perform a binary search */
+    ppn = bsearch(
+            pName,
+            &((pd->ppNames)[0]),
+            (size_t) pd->name_count,
+            sizeof(char *),
+            &name_search);
+    
+    /* Determine result */
+    if (ppn != NULL) {
+      /* Name found, so determine index */
+      result = (int32_t) (ppn - &((pd->ppNames)[0]));
+      
+    } else {
+      /* No name found */
+      result = -1;
+    }
+  }
+  
+  /* Return result or -1 */
+  return result;
+}
+
+/*
  * Public function implementations
  * -------------------------------
  * 
@@ -477,14 +892,6 @@ void genmap_run(
       status = 0;
       pResult->errcode = GENMAP_ERR_DUPNAME;
       pResult->linenum = 0;
-    }
-  }
-  
-  /* @@TODO: test for printing all names below */
-  if (status) {
-    int32_t i = 0;
-    for(i = 0; i < pDict->name_count; i++) {
-      fprintf(stderr, "%s\n", (pDict->ppNames)[i]);
     }
   }
   
