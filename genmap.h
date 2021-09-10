@@ -36,8 +36,15 @@
  * 
  * Use genmap_errstr() to get an error message string for an error code.
  */
-#define GENMAP_OK           (0)     /* No error */
-#define GENMAP_ERR_DUPNAME  (1)     /* Duplicate variable/const name */
+#define GENMAP_OK           (0)   /* No error */
+#define GENMAP_ERR_DUPNAME  (1)   /* Duplicate variable/const name */
+#define GENMAP_ERR_PASSONE  (2)   /* Can't find name from pass one */
+#define GENMAP_ERR_UNDEF    (3)   /* Undefined variable or constant */
+#define GENMAP_ERR_SETCONST (4)   /* Can't change constant value */
+#define GENMAP_ERR_UNDERFLW (5)   /* Stack underflow */
+#define GENMAP_ERR_OVERFLOW (6)   /* Stack overflow */
+#define GENMAP_ERR_NESTING  (7)   /* Too much group nesting */
+#define GENMAP_ERR_GROUPCHK (8)   /* Group check failed */
 
 /*
  * Type declarations
