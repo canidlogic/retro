@@ -335,6 +335,13 @@ static void free_dict(NAME_DICT *pd);
 static int32_t count_dict(NAME_DICT *pd);
 static int32_t name_index(NAME_DICT *pd, const char *pName);
 
+static int interpret(
+    ISTATE   * ps,
+    SNSOURCE * pIn,
+    int      * perr,
+    long     * pline,
+    int32_t    samp_rate);
+
 /*
  * Initialize a GENVAR structure and set it to undefined.
  * 
@@ -2035,6 +2042,83 @@ static int32_t name_index(NAME_DICT *pd, const char *pName) {
 }
 
 /*
+ * Interpret a generator map script.
+ * 
+ * ps is an interpreter state object that is used during interpretation.
+ * A first pass over the script should already have been done to
+ * correctly establishing the name dictionary.
+ * 
+ * pIn is the source for reading the script.  This function reads
+ * everything sequentially.  If you are using a multipass source, make
+ * sure it is rewound before passing it to this function.
+ * 
+ * perr points to a variable to receive an error status code for the
+ * operation.
+ * 
+ * pline points to a variable to receive an error line number for the
+ * operation.
+ * 
+ * samp_rate is the sampling rate, which must be either RATE_CD or
+ * RATE_DVD.
+ * 
+ * Upon successful return, the interpreter state object will hold the
+ * state of the interpreter at the end of the script.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter object
+ * 
+ *   pIn - the source to read the script from
+ * 
+ *   perr - variable to receive error status code
+ * 
+ *   pline - variable to receive line number
+ * 
+ *   samp_rate - the sampling rate
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if script interpretation failed
+ */
+static int interpret(
+    ISTATE   * ps,
+    SNSOURCE * pIn,
+    int      * perr,
+    long     * pline,
+    int32_t    samp_rate) {
+  
+  /* @@TODO: */
+  ADSR_OBJ *adsr = NULL;
+  GENVAR gv;
+  genvar_init(&gv);
+  adsr = adsr_alloc(
+            25.0,   /* Attack duration in milliseconds */
+            0.0,    /* Decay duration in milliseconds */
+            1.0,    /* Sustain level multiplier */
+            250.0,  /* Release duration in milliseconds */
+            samp_rate);
+  genvar_setGen(&gv, generator_op(
+              GENERATOR_F_SINE,   /* function */
+              1.0,                /* frequency multiplier */
+              0.0,                /* frequency boost */
+              20000.0,            /* base amplitude */
+              adsr,               /* ADSR envelope */
+              0.0,                /* FM feedback */
+              0.0,                /* AM feedback */
+              NULL,               /* FM modulator */
+              NULL,               /* AM modulator */
+              0.0,                /* FM modulator scale */
+              0.0,                /* AM modulator scale */
+              samp_rate,
+              20000,              /* ny_limit */
+              0));                /* hlimit */
+  
+  istate_push(ps, &gv, perr);
+  adsr_release(adsr);
+  return 1;
+}
+
+/*
  * Public function implementations
  * -------------------------------
  * 
@@ -2052,6 +2136,11 @@ void genmap_run(
   int status = 1;
   NAME_LINK *pNames = NULL;
   NAME_DICT *pDict = NULL;
+  ISTATE *ps = NULL;
+  GENVAR gv;
+  
+  /* Initialize structures */
+  genvar_init(&gv);
   
   /* Check parameters */
   if ((pIn == NULL) || (pResult == NULL)) {
@@ -2093,7 +2182,78 @@ void genmap_run(
     }
   }
   
-  /* @@TODO: */
+  /* Allocate a new interpreter state structure, transferring ownership
+   * of the name dictionary to it */
+  if (status) {
+    ps = istate_new(pDict);
+    pDict = NULL;
+  }
+  
+  /* Rewind the source */
+  if (status) {
+    if (!snsource_rewind(pIn)) {
+      status = 0;
+      pResult->errcode = SNERR_IOERR;
+      pResult->linenum = 0;
+    }
+  }
+  
+  /* Interpret the whole script */
+  if (status) {
+    if (!interpret(
+          ps,
+          pIn,
+          &(pResult->errcode),
+          &(pResult->linenum),
+          samp_rate)) {
+      status = 0;
+    }
+  }
+  
+  /* There shouldn't be any open groups in interpreter state */
+  if (status && istate_grouped(ps)) {
+    status = 0;
+    pResult->errcode = GENMAP_ERR_OPENGRP;
+    pResult->linenum = 0;
+  }
+  
+  /* There should be exactly one element left on interpreter stack */
+  if (status && (istate_height(ps) != 1)) {
+    status = 0;
+    pResult->errcode = GENMAP_ERR_FINAL;
+    pResult->linenum = 0;
+  }
+  
+  /* Get the remaining element and pop it off stack */
+  if (status) {
+    if (!istate_index(ps, 0, &gv, &(pResult->errcode))) {
+      abort();
+    }
+    if (!istate_pop(ps, 1, &(pResult->errcode))) {
+      abort();
+    }
+  }
+  
+  /* We can now release interpreter state */
+  if (status) {
+    istate_free(ps);
+    ps = NULL;
+  }
+  
+  /* Make sure we have a generator object type */
+  if (status && (genvar_type(&gv) != GENVAR_GENOBJ)) {
+    status = 0;
+    pResult->errcode = GENMAP_ERR_RESULTYP;
+    pResult->linenum = 0;
+  }
+  
+  /* Fill in result object and bind generators */
+  if (status) {
+    pResult->errcode = GENMAP_OK;
+    pResult->linenum = 0;
+    pResult->pRoot = genvar_getGen(&gv);
+    pResult->icount = generator_bind(pResult->pRoot, 0);
+  }
   
   /* If line number is LONG_MAX or negative, set to zero */
   if ((pResult->linenum == LONG_MAX) || (pResult->linenum < 0)) {
@@ -2108,34 +2268,12 @@ void genmap_run(
   free_dict(pDict);
   pDict = NULL;
   
-  /* @@TODO: test network below */
-  if (status) {
-    ADSR_OBJ *adsr = NULL;
-    adsr = adsr_alloc(
-              25.0,   /* Attack duration in milliseconds */
-              0.0,    /* Decay duration in milliseconds */
-              1.0,    /* Sustain level multiplier */
-              250.0,  /* Release duration in milliseconds */
-              samp_rate);
-    memset(pResult, 0, sizeof(GENMAP_RESULT));
-    pResult->errcode = GENMAP_OK;
-    pResult->pRoot = generator_op(
-                GENERATOR_F_SINE,   /* function */
-                1.0,                /* frequency multiplier */
-                0.0,                /* frequency boost */
-                20000.0,            /* base amplitude */
-                adsr,               /* ADSR envelope */
-                0.0,                /* FM feedback */
-                0.0,                /* AM feedback */
-                NULL,               /* FM modulator */
-                NULL,               /* AM modulator */
-                0.0,                /* FM modulator scale */
-                0.0,                /* AM modulator scale */
-                samp_rate,
-                20000,              /* ny_limit */
-                0);                 /* hlimit */
-    pResult->icount = generator_bind(pResult->pRoot, 0);
-  }
+  /* Release interpreter state if allocated */
+  istate_free(ps);
+  ps = NULL;
+  
+  /* Clear genvar structure */
+  genvar_clear(&gv);
 }
 
 /*
@@ -2188,6 +2326,18 @@ const char *genmap_errstr(int code) {
       
       case GENMAP_ERR_GROUPCHK:
         pResult = "Group check failed";
+        break;
+      
+      case GENMAP_ERR_OPENGRP:
+        pResult = "Open group at end of script";
+        break;
+      
+      case GENMAP_ERR_FINAL:
+        pResult = "Exactly one element must be left on stack at end";
+        break;
+      
+      case GENMAP_ERR_RESULTYP:
+        pResult = "Wrong type of object remains on stack at end";
         break;
       
       default:
