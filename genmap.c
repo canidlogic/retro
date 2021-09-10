@@ -10,6 +10,7 @@
 #include "genmap.h"
 #include "adsr.h"
 
+#include <math.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -279,6 +280,7 @@ static void genvar_init(GENVAR *pgv);
 static void genvar_clear(GENVAR *pgv);
 static void genvar_copy(GENVAR *pDest, const GENVAR *pSrc);
 static int genvar_type(const GENVAR *pgv);
+static int genvar_canfloat(const GENVAR *pgv);
 
 static int32_t genvar_getInt(const GENVAR *pgv);
 static double genvar_getFloat(const GENVAR *pgv);
@@ -333,21 +335,528 @@ static void free_dict(NAME_DICT *pd);
 static int32_t count_dict(NAME_DICT *pd);
 static int32_t name_index(NAME_DICT *pd, const char *pName);
 
-/* @@TODO: */
-static void genvar_init(GENVAR *pgv);
-static void genvar_clear(GENVAR *pgv);
-static void genvar_copy(GENVAR *pDest, const GENVAR *pSrc);
-static int genvar_type(const GENVAR *pgv);
-static int32_t genvar_getInt(const GENVAR *pgv);
-static double genvar_getFloat(const GENVAR *pgv);
-static int genvar_getAtom(const GENVAR *pgv);
-static ADSR_OBJ *genvar_getADSR(const GENVAR *pgv);
-static GENERATOR *genvar_getGen(const GENVAR *pgv);
-static void genvar_setInt(GENVAR *pgv, int32_t v);
-static void genvar_setFloat(GENVAR *pgv, double v);
-static void genvar_setAtom(GENVAR *pgv, int atom);
-static void genvar_setADSR(GENVAR *pgv, ADSR_OBJ *pADSR);
-static void genvar_setGen(GENVAR *pgv, GENERATOR *pGen);
+/*
+ * Initialize a GENVAR structure and set it to undefined.
+ * 
+ * CAUTION:  Do not initialize a GENVAR structure that has already been
+ * initialized, or a memory leak may occur!
+ * 
+ * The structure must be cleared with genvar_clear() before it is freed
+ * to prevent a memory leak.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the structure to initialize
+ */
+static void genvar_init(GENVAR *pgv) {
+  
+  /* Check parameter */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Initialize */
+  memset(pgv, 0, sizeof(GENVAR));
+  
+  pgv->vtype = GENVAR_UNDEF;
+  (pgv->val).dummy = 0;
+}
+
+/*
+ * Clear an initialized GENVAR structure back to undefined.
+ * 
+ * You must use this function to clear initialized GENVAR structures
+ * before freeing them to prevent memory leaks.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ */
+static void genvar_clear(GENVAR *pgv) {
+  
+  /* Check parameter */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Release any object references */
+  if (pgv->vtype == GENVAR_ADSR) {
+    adsr_release((pgv->val).pADSR);
+    (pgv->val).pADSR = NULL;
+    
+  } else if (pgv->vtype == GENVAR_GENOBJ) {
+    generator_release((pgv->val).pGen);
+    (pgv->val).pGen = NULL;
+  }
+  
+  /* Clear the structure back to undefined */
+  memset(pgv, 0, sizeof(GENVAR));
+  
+  pgv->vtype = GENVAR_UNDEF;
+  (pgv->val).dummy = 0;
+}
+
+/*
+ * Copy the value of one GENVAR structure to another.
+ * 
+ * pSrc is the source structure to copy from, and pDest is the
+ * destination structure to copy to.  If both pointers indicate the same
+ * structure, the call is ignored.  Otherwise, pDest is cleared with
+ * genvar_clear() and then the value from pSrc is copied into it.
+ * 
+ * If an object reference is copied, the reference count is increased by
+ * one.
+ * 
+ * Both source and destination structures must already be initialized.
+ * 
+ * Parameters:
+ * 
+ *   pDest - the destination structure
+ * 
+ *   pSrc - the source structure
+ */
+static void genvar_copy(GENVAR *pDest, const GENVAR *pSrc) {
+  
+  /* Check parameters */
+  if ((pDest == NULL) || (pSrc == NULL)) {
+    abort();
+  }
+  
+  /* Only proceed if the structures are different */
+  if (pDest != pSrc) {
+  
+    /* Clear the destination structure */
+    genvar_clear(pDest);
+    
+    /* Copy the source structure to destination */
+    memcpy(pDest, pSrc, sizeof(GENVAR));
+    
+    /* If we copied an object reference, increment reference count */
+    if (pDest->vtype == GENVAR_ADSR) {
+      adsr_addref((pDest->val).pADSR);
+      
+    } else if (pDest->vtype == GENVAR_GENOBJ) {
+      generator_addref((pDest->val).pGen);
+    }
+  }
+}
+
+/*
+ * Return the type of the value stored in a GENVAR structure.
+ * 
+ * The given structure must already be initialized.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ * Return:
+ * 
+ *   one of the GENVAR_ constants indicating the type stored in the
+ *   structure
+ */
+static int genvar_type(const GENVAR *pgv) {
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Return type */
+  return pgv->vtype;
+}
+
+/*
+ * Check whether a GENVAR structure is storing either an integer or a
+ * floating-point value.
+ * 
+ * Integers can be automatically promoted to floating-point when the
+ * function genvar_getFloat() is used, hence the utility of this
+ * function.
+ * 
+ * The given structure must already be initialized.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ * Return:
+ * 
+ *   non-zero if structure storing an integer or a floating-point value,
+ *   zero otherwise
+ */
+static int genvar_canfloat(const GENVAR *pgv) {
+  
+  int result = 0;
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Check type */
+  if ((pgv->vtype == GENVAR_INT) || (pgv->vtype == GENVAR_FLOAT)) {
+    result = 1;
+  } else {
+    result = 0;
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * Return the integer value stored in a GENVAR structure.
+ * 
+ * The given structure must already be initialized.  The type held in
+ * the structure must be an integer or a fault occurs.  Use the function
+ * genvar_type() to check the type.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ * Return:
+ * 
+ *   the integer value contained within
+ */
+static int32_t genvar_getInt(const GENVAR *pgv) {
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Check type */
+  if (pgv->vtype != GENVAR_INT) {
+    abort();
+  }
+  
+  /* Return integer value */
+  return (pgv->val).ival;
+}
+
+/*
+ * Return the floating-point value stored in a GENVAR structure.
+ * 
+ * If an integer is stored in the structure, this function will
+ * automatically promote the integer to a floating-point value.  The
+ * value stored in the structure remains an integer, however.
+ * 
+ * The given structure must already be initialized.  The type held in
+ * the structure must be an integer or a float, or a fault occurs.  Use
+ * the function genvar_type() to check the type, or the specialized
+ * function genvar_canfloat() to check for either an integer or a
+ * floating-point value.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ * Return:
+ * 
+ *   the floating-point value contained within, or promoted from the
+ *   integer value
+ */
+static double genvar_getFloat(const GENVAR *pgv) {
+  
+  double result = 0.0;
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Handle different types */
+  if (pgv->vtype == GENVAR_FLOAT) {
+    /* Float stored in structure, so return that */
+    result = (pgv->val).fval;
+    
+  } else if (pgv->vtype == GENVAR_INT) {
+    /* Integer stored in structure, so promote that */
+    result = (double) ((pgv->val).ival);
+    if (!isfinite(result)) {
+      abort();
+    }
+    
+  } else {
+    /* Unsupported type */
+    abort();
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * Return the atom value stored in a GENVAR structure.
+ * 
+ * The given structure must already be initialized.  The type held in
+ * the structure must be an atom or a fault occurs.  Use the function
+ * genvar_type() to check the type.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ * Return:
+ * 
+ *   the integer value of the atom value contained within
+ */
+static int genvar_getAtom(const GENVAR *pgv) {
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Check type */
+  if (pgv->vtype != GENVAR_ATOM) {
+    abort();
+  }
+  
+  /* Return integer value */
+  return (pgv->val).atom;
+}
+
+/*
+ * Return the ADSR object stored in a GENVAR structure.
+ * 
+ * The given structure must already be initialized.  The type held in
+ * the structure must be an ADSR object reference or a fault occurs.
+ * Use the function genvar_type() to check the type.
+ * 
+ * The reference count of the returned ADSR object is not modified by
+ * this function.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ * Return:
+ * 
+ *   the ADSR object reference contained within
+ */
+static ADSR_OBJ *genvar_getADSR(const GENVAR *pgv) {
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Check type */
+  if (pgv->vtype != GENVAR_ADSR) {
+    abort();
+  }
+  
+  /* Return the object reference */
+  return (pgv->val).pADSR;
+}
+
+/*
+ * Return the generator object stored in a GENVAR structure.
+ * 
+ * The given structure must already be initialized.  The type held in
+ * the structure must be a generator object reference or a fault occurs.
+ * Use the function genvar_type() to check the type.
+ * 
+ * The reference count of the returned generator object is not modified
+ * by this function.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ * Return:
+ * 
+ *   the generator object reference contained within
+ */
+static GENERATOR *genvar_getGen(const GENVAR *pgv) {
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Check type */
+  if (pgv->vtype != GENVAR_GENOBJ) {
+    abort();
+  }
+  
+  /* Return the object reference */
+  return (pgv->val).pGen;
+}
+
+/*
+ * Set an integer value in the given GENVAR structure.
+ * 
+ * The given structure must already be initialized.  It will first be
+ * cleared using genvar_clear() and then the given integer value will be
+ * written into it.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ *   v - the integer value to store
+ */
+static void genvar_setInt(GENVAR *pgv, int32_t v) {
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Clear to undefined */
+  genvar_clear(pgv);
+  
+  /* Write the integer value */
+  pgv->vtype = GENVAR_INT;
+  (pgv->val).ival = v;
+}
+
+/*
+ * Set a float value in the given GENVAR structure.
+ * 
+ * The given structure must already be initialized.  It will first be
+ * cleared using genvar_clear() and then the given float value will be
+ * written into it.
+ * 
+ * The given float value must be finite or a fault occurs.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ *   v - the float value to store
+ */
+static void genvar_setFloat(GENVAR *pgv, double v) {
+  
+  /* Check parameters */
+  if ((pgv == NULL) || (!isfinite(v))) {
+    abort();
+  }
+  
+  /* Clear to undefined */
+  genvar_clear(pgv);
+  
+  /* Write the float value */
+  pgv->vtype = GENVAR_FLOAT;
+  (pgv->val).fval = v;
+}
+
+/*
+ * Set an atom value in the given GENVAR structure.
+ * 
+ * The given structure must already be initialized.  It will first be
+ * cleared using genvar_clear() and then the given atom value will be
+ * written into it.
+ * 
+ * The given atom value can have any integer value.  It should
+ * correspond to the unique integer value of the atom.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ *   atom - the atom value to store
+ */
+static void genvar_setAtom(GENVAR *pgv, int atom) {
+  
+  /* Check parameters */
+  if (pgv == NULL) {
+    abort();
+  }
+  
+  /* Clear to undefined */
+  genvar_clear(pgv);
+  
+  /* Write the integer value */
+  pgv->vtype = GENVAR_ATOM;
+  (pgv->val).atom = atom;
+}
+
+/*
+ * Set an ADSR object reference in the given GENVAR structure.
+ * 
+ * The given structure must already be initialized.  It will first be
+ * cleared using genvar_clear() and then the given ADSR object reference
+ * will be written into it.
+ * 
+ * The reference count of the ADSR object will be incremented by this
+ * function.
+ * 
+ * CAUTION:  This function is only intended for transferring an object
+ * reference that is not already stored in GENVAR structure.  If you
+ * take an object reference that is already stored in a GENVAR structure
+ * and try storing it in the same GENVAR structure using this function,
+ * a dangling pointer will result.  Use genvar_copy() to copy references
+ * safely between GENVAR structures.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ *   pADSR - the ADSR object reference to store
+ */
+static void genvar_setADSR(GENVAR *pgv, ADSR_OBJ *pADSR) {
+  
+  /* Check parameters */
+  if ((pgv == NULL) || (pADSR == NULL)) {
+    abort();
+  }
+  
+  /* Clear to undefined */
+  genvar_clear(pgv);
+  
+  /* Write the object reference */
+  pgv->vtype = GENVAR_ADSR;
+  (pgv->val).pADSR = pADSR;
+  
+  /* Increment reference count */
+  adsr_addref(pADSR);
+}
+
+/*
+ * Set a generator object reference in the given GENVAR structure.
+ * 
+ * The given structure must already be initialized.  It will first be
+ * cleared using genvar_clear() and then the given generator object
+ * reference will be written into it.
+ * 
+ * The reference count of the generator object will be incremented by
+ * this function.
+ * 
+ * CAUTION:  This function is only intended for transferring an object
+ * reference that is not already stored in GENVAR structure.  If you
+ * take an object reference that is already stored in a GENVAR structure
+ * and try storing it in the same GENVAR structure using this function,
+ * a dangling pointer will result.  Use genvar_copy() to copy references
+ * safely between GENVAR structures.
+ * 
+ * Parameters:
+ * 
+ *   pgv - the initialized structure
+ * 
+ *   pGen - the generator object reference to store
+ */
+static void genvar_setGen(GENVAR *pgv, GENERATOR *pGen) {
+  
+  /* Check parameters */
+  if ((pgv == NULL) || (pGen == NULL)) {
+    abort();
+  }
+  
+  /* Clear to undefined */
+  genvar_clear(pgv);
+  
+  /* Write the object reference */
+  pgv->vtype = GENVAR_GENOBJ;
+  (pgv->val).pGen = pGen;
+  
+  /* Increment reference count */
+  generator_addref(pGen);
+}
 
 /* @@TODO: */
 static ISTATE *istate_new(NAME_DICT *pNames);
