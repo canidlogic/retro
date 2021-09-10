@@ -45,6 +45,9 @@
 #define GENMAP_ERR_OVERFLOW (6)   /* Stack overflow */
 #define GENMAP_ERR_NESTING  (7)   /* Too much group nesting */
 #define GENMAP_ERR_GROUPCHK (8)   /* Group check failed */
+#define GENMAP_ERR_OPENGRP  (9)   /* Open group at end of script */
+#define GENMAP_ERR_FINAL    (10)  /* Invalid final stack state */
+#define GENMAP_ERR_RESULTYP (11)  /* Wrong type for result */
 
 /*
  * Type declarations
