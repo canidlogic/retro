@@ -67,6 +67,24 @@ typedef int32_t (*fp_len)(
     int32_t);
 
 /*
+ * Function pointer to a bind implementation.
+ * 
+ * This function is used to bind generator objects to indices within an
+ * instance data array and determine the total length of the instance
+ * data array.
+ * 
+ * The void pointer is a custom parameter that is passed through to the
+ * function.  This represents the class data for the generator object.
+ * 
+ * The int32_t parameter is the total number of instance data indices
+ * that have been already assigned.
+ * 
+ * The return value is the total number of instance data indices that
+ * have been assigned after this call completes.
+ */
+typedef int32_t (*fp_bind)(void *, int32_t);
+
+/*
  * Function pointer to a destructor routine.
  * 
  * The void pointer is the custom parameter representing the class data.
@@ -96,6 +114,11 @@ struct GENERATOR_TAG {
    * Pointer to the length function for this generator object.
    */
   fp_len fLen;
+  
+  /*
+   * Pointer to the bind function for this generator object.
+   */
+  fp_bind fBind;
   
   /*
    * Pointer to the destructor function for this generator object.
@@ -142,7 +165,7 @@ typedef struct {
   /*
    * Integer parameters.
    */
-  int32_t pod_i;
+  int32_t pod_i;      /* -1 if not bound yet */
   int32_t samp_rate;
   int32_t hlimit;
   int32_t ny_limit;
@@ -198,6 +221,9 @@ static int32_t len_op(
     void             * pClass,
     GENERATOR_OPDATA * pods,
     int32_t            pod_count);
+
+static int32_t bind_additive(void *pClass, int32_t start);
+static int32_t bind_op(void *pClass, int32_t start);
 
 static void free_additive(void *pCustom);
 static void free_op(void *pCustom);
@@ -356,8 +382,8 @@ static double gen_op(
   /* Cast the class data to the appropriate structure pointer */
   pc = (OP_CLASS *) pClass;
   
-  /* Make sure the instance data index is in range, then get a pointer
-   * to the instance data for this operator */
+  /* Make sure the instance data index is bound and in range, then get a
+   * pointer to the instance data for this operator */
   if ((pc->pod_i < 0) || (pc->pod_i >= pod_count)) {
     abort();
   }
@@ -584,25 +610,92 @@ static int32_t len_op(
   
   OP_CLASS *pc = NULL;
   GENERATOR_OPDATA *pod = NULL;
-  
+
   /* Check parameters */
   if ((pClass == NULL) ||
       (pods == NULL) || (pod_count < 1)) {
+    abort();
+  }
+
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (OP_CLASS *) pClass;
+
+  /* Make sure the instance data index is bound and in range, then get a
+   * pointer to the instance data for this operator */
+  if ((pc->pod_i < 0) || (pc->pod_i >= pod_count)) {
+    abort();
+  }
+  pod = &(pods[pc->pod_i]);
+
+  /* Return the length from the ADSR envelope */
+  return adsr_length(pc->pAmp, pod->dur);
+}
+
+/*
+ * Bind routine for additive generators.
+ * 
+ * This matches the interface of fp_bind.
+ */
+static int32_t bind_additive(void *pClass, int32_t start) {
+  
+  GENERATOR **ppg = NULL;
+  
+  /* Check parameters */
+  if ((pClass == NULL) || (start < 0)) {
+    abort();
+  }
+  
+  /* Cast the class data to a NULL-terminated array of generator
+   * pointers */
+  ppg = (GENERATOR **) pClass;
+  
+  /* Bind all generators */
+  for( ; *ppg != NULL; ppg++) {
+    start = generator_bind(*ppg, start);
+  }
+  
+  /* Return updated count */
+  return start;
+}
+
+/* 
+ * Bind routine for operators.
+ * 
+ * This matches the interface of fp_bind.
+ */
+static int32_t bind_op(void *pClass, int32_t start) {
+  
+  OP_CLASS *pc = NULL;
+  
+  /* Check parameters */
+  if ((pClass == NULL) || (start < 0)) {
     abort();
   }
   
   /* Cast the class data to the appropriate structure pointer */
   pc = (OP_CLASS *) pClass;
   
-  /* Make sure the instance data index is in range, then get a pointer
-   * to the instance data for this operator */
-  if ((pc->pod_i < 0) || (pc->pod_i >= pod_count)) {
+  /* Bind the index of this operator and update start, watching for
+   * overflow */
+  if (start < INT32_MAX) {
+    pc->pod_i = start;
+    start++;
+    
+  } else {
+    /* Overflow */
     abort();
   }
-  pod = &(pods[pc->pod_i]);
   
-  /* Return the length from the ADSR envelope */
-  return adsr_length(pc->pAmp, pod->dur);
+  /* If there are modulators, bind them */
+  if (pc->pFM != NULL) {
+    start = generator_bind(pc->pFM, start);
+  }
+  if (pc->pAM != NULL) {
+    start = generator_bind(pc->pAM, start);
+  }
+  
+  /* Return updated count */
+  return start;
 }
 
 /*
@@ -750,6 +843,7 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count) {
   png->pClass = (void *) ppnew;
   png->fGen = &gen_additive;
   png->fLen = &len_additive;
+  png->fBind = &bind_additive;
   png->fFree = &free_additive;
   png->refcount = 1;
   
@@ -774,8 +868,7 @@ GENERATOR *generator_op(
     double      am_scale,
     int32_t     samp_rate,
     int32_t     ny_limit,
-    int32_t     hlimit,
-    int32_t     pod_i) {
+    int32_t     hlimit) {
   
   OP_CLASS *pc = NULL;
   GENERATOR *png = NULL;
@@ -815,9 +908,6 @@ GENERATOR *generator_op(
     abort();
   }
   if (hlimit < 0) {
-    abort();
-  }
-  if (pod_i < 0) {
     abort();
   }
   
@@ -863,7 +953,9 @@ GENERATOR *generator_op(
   pc->samp_rate = samp_rate;
   pc->ny_limit = ny_limit;
   pc->hlimit = hlimit;
-  pc->pod_i = pod_i;
+  
+  /* Set to unbound state */
+  pc->pod_i = -1;
   
   /* Add a reference to the ADSR envelope */
   adsr_addref(pc->pAmp);
@@ -887,6 +979,7 @@ GENERATOR *generator_op(
   png->pClass = (void *) pc;
   png->fGen = &gen_op;
   png->fLen = &len_op;
+  png->fBind = &bind_op;
   png->fFree = &free_op;
   png->refcount = 1;
   
@@ -971,24 +1064,43 @@ double generator_invoke(
 }
 
 /*
- * generator_invoke function.
+ * generator_length function.
  */
 int32_t generator_length(
     GENERATOR        * pg,
     GENERATOR_OPDATA * pods,
     int32_t            pod_count) {
-  
+
   /* Check parameters */
   if ((pg == NULL) || (pods == NULL) ||
       (pod_count < 1)) {
     abort();
   }
-  
+
   /* Check that class data and length function are defined */
   if ((pg->pClass == NULL) || (pg->fLen == NULL)) {
     abort();
   }
-  
+
   /* Call through to the length function */
   return (*(pg->fLen))(pg->pClass, pods, pod_count);
+}
+
+/*
+ * generator_bind function.
+ */
+int32_t generator_bind(GENERATOR *pg, int32_t start) {
+  
+  /* Check parameters */
+  if ((pg == NULL) || (start < 0)) {
+    abort();
+  }
+  
+  /* Check that bind function exists */
+  if (pg->fBind == NULL) {
+    abort();
+  }
+  
+  /* Call through to bind function implementation */
+  return (*(pg->fBind))(pg->pClass, start);
 }
