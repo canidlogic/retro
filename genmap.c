@@ -2133,9 +2133,8 @@ void genmap_run(
                 0.0,                /* AM modulator scale */
                 samp_rate,
                 20000,              /* ny_limit */
-                0,                  /* hlimit */
-                0);                 /* instance data offset */
-    pResult->icount = 1;
+                0);                 /* hlimit */
+    pResult->icount = generator_bind(pResult->pRoot, 0);
   }
 }
 
