@@ -272,12 +272,6 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * frequencies above the Nyquist limit.  Using raw waves for modulating
  * other operators should work, though, and will be faster.
  * 
- * pod_i is an array index that is zero or greater.  When the function
- * generator_invoke() is used to invoke this operator generator, then
- * pod_i is the index within the pods array of the instance data for
- * this specific operator.  Each operator must have its own instance
- * data structure or undefined behavior occurs.
- * 
  * Parameters:
  * 
  *   fop - the GENERATOR_F constant selecting the operator function
@@ -309,8 +303,6 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  *   hlimit - maximum number of sine waves used for approximation, or
  *   zero for raw wave
  * 
- *   pod_i - the index of the instance data within the pods array
- * 
  * Return:
  * 
  *   the newly constructed generator object
@@ -329,8 +321,7 @@ GENERATOR *generator_op(
     double      am_scale,
     int32_t     samp_rate,
     int32_t     ny_limit,
-    int32_t     hlimit,
-    int32_t     pod_i);
+    int32_t     hlimit);
 
 /*
  * Increment the reference count of the given generator object.
@@ -360,6 +351,9 @@ void generator_release(GENERATOR *pg);
 
 /*
  * Invoke a generator object.
+ * 
+ * Before using this function, you must bind all generators by using
+ * generator_bind() on the generator object or a fault occurs.
  * 
  * pg is the generator object to invoke.  pods points to an array of
  * operator data structures, and pod_count determines how many operator
@@ -401,6 +395,9 @@ double generator_invoke(
  * Determine the total length in samples of the sound that is being
  * rendered by a specific generator instance.
  * 
+ * Before using this function, you must bind all generators by using
+ * generator_bind() on the generator object or a fault occurs.
+ * 
  * pg is the generator object to invoke.  pods points to an array of
  * operator data structures, and pod_count determines how many operator
  * data structures are present in this array.  The operator data
@@ -440,5 +437,36 @@ int32_t generator_length(
     GENERATOR        * pg,
     GENERATOR_OPDATA * pods,
     int32_t            pod_count);
+
+/*
+ * Recursively bind a generator object and all generator objects that
+ * can be reached from the generator object.
+ * 
+ * Binding an additive operator simply forwards the binding call to each
+ * of the component generators.  Binding an operator assigns a unique
+ * index within the instance data array and forwards the call to any
+ * modulator generator objects.
+ * 
+ * start is the number of instance data structures that have been
+ * assigned so far.  The top-level bind call should set this parameter
+ * to zero.
+ * 
+ * The return value is the total number of instance data structures that
+ * were assigned during the bind operation.
+ * 
+ * You must bind generators before you can use generator_invoke() or
+ * generator_length().
+ * 
+ * Parameters:
+ * 
+ *   pg - the generator to recursively bind
+ * 
+ *   start - the number of bindings so far
+ * 
+ * Return:
+ * 
+ *   the total number of instance data structures that have been bound
+ */
+int32_t generator_bind(GENERATOR *pg, int32_t start);
 
 #endif
