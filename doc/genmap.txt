@@ -1,8 +1,8 @@
 # Example generator map Shastina file
 #
-# Generator maps do NOT begin with a metacommand identifying the file
-# type.  This is because they are meant to be embedded as string
-# variables within a greater Shastina script.
+# FM generator maps begin with the following metacommand:
+
+%fm;
 
 # The interpreter for generator map scripts supports the following data
 # types:
