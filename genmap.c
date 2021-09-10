@@ -858,36 +858,725 @@ static void genvar_setGen(GENVAR *pgv, GENERATOR *pGen) {
   generator_addref(pGen);
 }
 
-/* @@TODO: */
-static ISTATE *istate_new(NAME_DICT *pNames);
-static void istate_free(ISTATE *ps);
+/*
+ * Allocate a new interpreter state object.
+ * 
+ * pNames is a name dictionary containing a mapping from all variable
+ * and constant names that will be defined to their indices in the
+ * register bank.  The interpreter state object will take ownership of
+ * this dictionary object.
+ * 
+ * The returned object is in initial state, with interpreter stack
+ * empty, no variables or constants defined yet, and no groups open.
+ * 
+ * The interpreter state object should eventually be freed with
+ * istate_free().
+ * 
+ * Parameters:
+ * 
+ *   pNames - the name dictionary
+ * 
+ * Return:
+ * 
+ *   a new interpreter state object
+ */
+static ISTATE *istate_new(NAME_DICT *pNames) {
+  
+  ISTATE *ps = NULL;
+  int32_t i = 0;
+  int32_t i_size = 0;
+  
+  /* Check parameter */
+  if (pNames == NULL) {
+    abort();
+  }
+  
+  /* Allocate new interpreter state structure */
+  ps = (ISTATE *) malloc(sizeof(ISTATE));
+  if (ps == NULL) {
+    abort();
+  }
+  memset(ps, 0, sizeof(ISTATE));
+  
+  /* Copy dictionary in and initialize state */
+  ps->pDict = pNames;
+  ps->pBank = NULL;
+  ps->cap = 0;
+  ps->height = 0;
+  ps->pStack = NULL;
+  ps->gheight = 0;
+  
+  /* If there is at least one variable or constant, allocate the
+   * register bank and initialize */
+  if (count_dict(ps->pDict) > 0) {
+    /* Allocate register bank */
+    ps->pBank = (VARCELL *) calloc(
+                              (size_t) count_dict(ps->pDict),
+                              sizeof(VARCELL));
+    if (ps->pBank == NULL) {
+      abort();
+    }
+    
+    /* Initialize each register cell */
+    i_size = count_dict(ps->pDict);
+    for(i = 0; i < i_size; i++) {
+      ((ps->pBank)[i]).status = VARCELL_UNDEF;
+      genvar_init(&(((ps->pBank)[i]).gv));
+    }
+  }
+  
+  /* Return the interpreter state object */
+  return ps;
+}
+
+/*
+ * Free an interpreter state object.
+ * 
+ * If NULL is passed, the call is ignored.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state object to free, or NULL
+ */
+static void istate_free(ISTATE *ps) {
+  
+  int32_t i = 0;
+  int32_t i_count = 0;
+  
+  /* Only proceed if non-NULL passed */
+  if (ps != NULL) {
+  
+    /* Get the number of registers in the register bank */
+    i_count = count_dict(ps->pDict);
+  
+    /* Free the name dictionary */
+    free_dict(ps->pDict);
+    ps->pDict = NULL;
+    
+    /* Clear all registers, releasing any references */
+    for(i = 0; i < i_count; i++) {
+      genvar_clear(&(((ps->pBank)[i]).gv));
+    }
+  
+    /* Free the register bank (if allocated) */
+    if (ps->pBank != NULL) {
+      free(ps->pBank);
+      ps->pBank = NULL;
+    }
+    
+    /* Clear the interpreter stack, releasing any references */
+    for(i = 0; i < ps->cap; i++) {
+      genvar_clear(&((ps->pStack)[i]));
+    }
+    
+    /* Free the interpreter stack (if allocated) */
+    if (ps->pStack != NULL) {
+      free(ps->pStack);
+      ps->pStack = NULL;
+    }
+  
+    /* Free the whole interpreter state structure */
+    free(ps);
+  }
+}
+
+/*
+ * Define a variable or a constant in an interpreter state object.
+ * 
+ * ps is the interpreter state object.  pName is the name of the
+ * variable or constant to define.  The function fails with an error if
+ * the name is not found in the name dictionary within the interpreter
+ * state object or if the given name is already defined.
+ * 
+ * is_const is non-zero to define a constant or zero to define a
+ * variable.
+ * 
+ * val indicates a GENVAR structure holding the value to copy into the
+ * variable or constant to initialize it.
+ * 
+ * perr points to a variable to receive an error code if the operation
+ * fails.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   pName - the name of the variable or constant
+ * 
+ *   is_const - non-zero to define constant, zero to define variable
+ * 
+ *   val - the structure holding the initial value
+ * 
+ *   perr - points to a variable to receive an error code if failure
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
 static int istate_define(
           ISTATE * ps,
     const char   * pName,
           int      is_const,
     const GENVAR * val,
-          int    * perr);
+          int    * perr) {
+  
+  int status = 1;
+  int32_t var_i = 0;
+  
+  /* Check parameters */
+  if ((ps == NULL) || (pName == NULL) ||
+      (val == NULL) || (perr == NULL)) {
+    abort();
+  }
+  
+  /* Use the dictionary to get the register index of the variable or
+   * constant */
+  var_i = name_index(ps->pDict, pName);
+  if (var_i < 0) {
+    status = 0;
+    *perr = GENMAP_ERR_PASSONE;
+  }
+  
+  /* Check that register is currently undefined */
+  if (status) {
+    if (((ps->pBank)[var_i]).status != VARCELL_UNDEF) {
+      status = 0;
+      *perr = GENMAP_ERR_DUPNAME;
+    }
+  }
+  
+  /* Set the new register status and copy in the value */
+  if (status) {
+    if (is_const) {
+      ((ps->pBank)[var_i]).status = VARCELL_CONST;
+    } else {
+      ((ps->pBank)[var_i]).status = VARCELL_VAR;
+    }
+    genvar_copy(&(((ps->pBank)[var_i]).gv), val);
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Set a defined variable in an interpreter state object.
+ * 
+ * ps is the interpreter state object.  pName is the name of a defined
+ * variable.  The function fails with an error if the name is not found
+ * in the name dictionary within the interpreter state object or if the
+ * given name is not currently defined as a variable.
+ * 
+ * val indicates a GENVAR structure holding the value to copy into the
+ * variable, overwriting any current value.
+ * 
+ * perr points to a variable to receive an error code if the operation
+ * fails.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   pName - the name of a variable
+ * 
+ *   val - the structure holding the initial value
+ * 
+ *   perr - points to a variable to receive an error code if failure
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
 static int istate_set(
           ISTATE * ps,
     const char   * pName,
     const GENVAR * val,
-          int    * perr);
+          int    * perr) {
+  
+  int status = 1;
+  int32_t var_i = 0;
+  
+  /* Check parameters */
+  if ((ps == NULL) || (pName == NULL) ||
+      (val == NULL) || (perr == NULL)) {
+    abort();
+  }
+  
+  /* Use the dictionary to get the register index of the variable */
+  var_i = name_index(ps->pDict, pName);
+  if (var_i < 0) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDEF;
+  }
+  
+  /* Check that register is a defined variable */
+  if (status) {
+    if (((ps->pBank)[var_i]).status != VARCELL_VAR) {
+      status = 0;
+      if (((ps->pBank)[var_i]).status == VARCELL_CONST) {
+        /* Attempted to assign value to const */
+        *perr = GENMAP_ERR_SETCONST;
+      } else {
+        /* Attempted to use undefined variable */
+        *perr = GENMAP_ERR_UNDEF;
+      }
+    }
+  }
+  
+  /* Copy in the new value */
+  if (status) {
+    genvar_copy(&(((ps->pBank)[var_i]).gv), val);
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Get a defined variable or constant value from an interpreter state
+ * object.
+ * 
+ * ps is the interpreter state object.  pName is the name of a defined
+ * variable or constant.  The function fails with an error if the name
+ * is not found in the name dictionary within the interpreter state
+ * object or if the given name is not currently defined.
+ * 
+ * pDest indicates a initialized GENVAR structure that will receive the
+ * value of the variable or constant if the function is successful.
+ * 
+ * perr points to a variable to receive an error code if the operation
+ * fails.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   pName - the name of a variable or constant
+ * 
+ *   pDest - the structure to receive the current value
+ * 
+ *   perr - points to a variable to receive an error code if failure
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
 static int istate_get(
           ISTATE * ps,
     const char   * pName,
           GENVAR * pDest,
-          int    * perr);
-static int32_t istate_height(ISTATE *ps);
+          int    * perr) {
+  
+  int status = 1;
+  int32_t var_i = 0;
+  
+  /* Check parameters */
+  if ((ps == NULL) || (pName == NULL) ||
+      (pDest == NULL) || (perr == NULL)) {
+    abort();
+  }
+  
+  /* Use the dictionary to get the register index of the variable */
+  var_i = name_index(ps->pDict, pName);
+  if (var_i < 0) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDEF;
+  }
+  
+  /* Check that register is defined */
+  if (status) {
+    if (((ps->pBank)[var_i]).status == VARCELL_UNDEF) {
+      status = 0;
+      *perr = GENMAP_ERR_UNDEF;
+    }
+  }
+  
+  /* Copy the value */
+  if (status) {
+    genvar_copy(pDest, &(((ps->pBank)[var_i]).gv));
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Determine the current interpreter stack height of an interpreter
+ * state object.
+ * 
+ * This takes into account grouping, so that stack entries hidden by
+ * open groups will not be counted in the height.  This height only
+ * refers to stack entries that are currently visible.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state object
+ * 
+ * Return:
+ * 
+ *   the stack height, taking grouping into account
+ */
+static int32_t istate_height(ISTATE *ps) {
+  
+  int32_t result = 0;
+  
+  /* Check parameter */
+  if (ps == NULL) {
+    abort();
+  }
+  
+  /* Start with the absolute height of the interpreter stack */
+  result = ps->height;
+  
+  /* If there are open groups, subtract by the value on top of the
+   * grouping stack to get the visible height */
+  if (ps->gheight > 0) {
+    result = result - (ps->gstack)[ps->gheight - 1];
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * Get a value from the interpreter stack.
+ * 
+ * i is the index of the element on the interpreter stack, where zero is
+ * the top of the stack, one is the element below the top of the stack,
+ * and so forth.
+ * 
+ * i must be zero or greater.  Also, i must be less than the value
+ * returned by istate_height().  This means that this function is not
+ * able to read elements that have been hidden by grouping.
+ * 
+ * The function fails with an error if i is zero or greater but exceeds
+ * the current stack height.  The function faults if i is less than
+ * zero.
+ * 
+ * pDest indicates a structure to receive the value of the indicated
+ * stack element if the operation is successful.
+ * 
+ * perr points to a variable to receive an error code if the function
+ * fails.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state object
+ * 
+ *   i - the index of the element on the stack
+ * 
+ *   pDest - the structure to receive the value
+ * 
+ *   perr - pointer to variable to receive an error code if failure
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
 static int istate_index(
     ISTATE  * ps,
     int32_t   i,
     GENVAR  * pDest,
-    int     * perr);
-static int istate_pop(ISTATE *ps, int32_t count, int *perr);
-static int istate_push(ISTATE *ps, const GENVAR *pv, int *perr);
-static int istate_grouped(ISTATE *ps);
-static int istate_begin(ISTATE *ps, int *perr);
-static int istate_end(ISTATE *ps, int *perr);
+    int     * perr) {
+  
+  int status = 1;
+  
+  /* Check parameters */
+  if ((ps == NULL) || (pDest == NULL) || (perr == NULL) || (i < 0)) {
+    abort();
+  }
+  
+  /* Check that i within visible stack range */
+  if (i >= istate_height(ps)) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* Copy value from stack */
+  if (status) {
+    genvar_copy(pDest, &((ps->pStack)[ps->height - 1 - i]));
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Remove values from top of stack.
+ * 
+ * count is the number of values to remove.  It must be zero or greater
+ * or a fault occurs.  It must be less than or equal to istate_height()
+ * or an error occurs.  If count is zero, the call is ignored.
+ * Otherwise, that number of elements are removed from the top of the
+ * interpreter stack.
+ * 
+ * This function is not able to remove elements of the stack that have
+ * been hidden by grouping.
+ * 
+ * perr points to a variable to receive an error code if the function
+ * fails.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state object
+ * 
+ *   count - the number of elements to remove
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int istate_pop(ISTATE *ps, int32_t count, int *perr) {
+  
+  int status = 1;
+  int32_t i = 0;
+  
+  /* Check parameters */
+  if ((ps == NULL) || (count < 0) || (perr == NULL)) {
+    abort();
+  }
+  
+  /* Only proceed if count greater than zero */
+  if (count > 0) {
+  
+    /* Check that given count of elements are visible on stack */
+    if (istate_height(ps) < count) {
+      status = 0;
+      *perr = GENMAP_ERR_UNDERFLW;
+    }
+    
+    /* Clear the elements, releasing any references */
+    if (status) {
+      for(i = 1; i <= count; i++) {
+        genvar_clear(&((ps->pStack)[ps->height - i]));
+      }
+    }
+    
+    /* Reduce stack height */
+    if (status) {
+      ps->height -= count;
+    }
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Push a value on top of the interpreter stack.
+ * 
+ * pv indicates a structure holding the value that should be pushed on
+ * top of the stack.
+ * 
+ * perr points to a variable to receive an error code if the operation
+ * fails.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state structure
+ * 
+ *   pv - the value to push
+ * 
+ *   perr - variable to hold an error code if failure
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int istate_push(ISTATE *ps, const GENVAR *pv, int *perr) {
+  
+  int status = 1;
+  int32_t i = 0;
+  int32_t new_cap = 0;
+  
+  /* Check parameters */
+  if ((ps == NULL) || (pv == NULL) || (perr == NULL)) {
+    abort();
+  }
+  
+  /* Check that we haven't exceeded full stack capacity */
+  if (ps->height >= ISTACK_MAX) {
+    status = 0;
+    *perr = GENMAP_ERR_OVERFLOW;
+  }
+  
+  /* If stack capacity is zero, make initial allocation */
+  if (status && (ps->cap < 1)) {
+    /* Set cap to initial capacity */
+    ps->cap = ISTACK_INIT;
+    
+    /* Allocate initial capacity */
+    ps->pStack = (GENVAR *) calloc((size_t) ps->cap, sizeof(GENVAR));
+    if (ps->pStack == NULL) {
+      abort();
+    }
+    
+    /* Initialize stack elements */
+    for(i = 0; i < ps->cap; i++) {
+      genvar_clear(&((ps->pStack)[i]));
+    }
+  }
+  
+  /* If we need to grow the stack, do it */
+  if (status && (ps->height >= ps->cap)) {
+    
+    /* New capacity by default is double current capacity */
+    new_cap = ps->cap * 2;
+    
+    /* If new capacity exceeds total limit, set to total limit */
+    if (new_cap > ISTACK_MAX) {
+      new_cap = ISTACK_MAX;
+    }
+    
+    /* Expand the interpreter stack */
+    ps->pStack = (GENVAR *) realloc(
+                                ps->pStack,
+                                ((size_t) new_cap) * sizeof(GENVAR));
+    if (ps->pStack == NULL) {
+      abort();
+    }
+    
+    /* Initialize new stack elements */
+    for(i = ps->cap; i < new_cap; i++) {
+      genvar_clear(&((ps->pStack)[i]));
+    }
+    
+    /* Update capacity */
+    ps->cap = new_cap;
+  }
+  
+  /* Increase stack height by one and copy in value */
+  if (status) {
+    (ps->height)++;
+    genvar_copy(&((ps->pStack)[ps->height - 1]), pv);
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Determine whether there are currently any open groups.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state structure
+ * 
+ * Return:
+ * 
+ *   non-zero if at least one open group, zero if no open groups
+ */
+static int istate_grouped(ISTATE *ps) {
+  
+  int result = 0;
+  
+  /* Check parameter */
+  if (ps == NULL) {
+    abort();
+  }
+  
+  /* Determine result */
+  if (ps->gheight > 0) {
+    result = 1;
+  } else {
+    result = 0;
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * Begin a group.
+ * 
+ * perr points to variable to receive error code in case of error.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state structure
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int istate_begin(ISTATE *ps, int *perr) {
+  
+  int status = 1;
+  
+  /* Check parameters */
+  if ((ps == NULL) || (perr == NULL)) {
+    abort();
+  }
+  
+  /* Check for group stack overflow */
+  if (ps->gheight >= ISTACK_NEST) {
+    status = 0;
+    *perr = GENMAP_ERR_NESTING;
+  }
+  
+  /* Push current stack height on top of group stack to hide everything
+   * that is currently on the interpreter stack */
+  if (status) {
+    (ps->gheight)++;
+    (ps->gstack)[ps->gheight - 1] = ps->height;
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * End a group.
+ * 
+ * A fault occurs if no group is currently open.  An error occurs if the
+ * group condition that exactly one element is visible on the stack is
+ * not satisfied.
+ * 
+ * perr points to variable to receive error code in case of error.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state structure
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int istate_end(ISTATE *ps, int *perr) {
+  
+  int status = 1;
+  
+  /* Check parameters */
+  if ((ps == NULL) || (perr == NULL)) {
+    abort();
+  }
+  
+  /* Check that at least one group open */
+  if (ps->gheight < 1) {
+    abort();
+  }
+  
+  /* Check that exactly one stack element visible */
+  if (istate_height(ps) != 1) {
+    status = 0;
+    *perr = GENMAP_ERR_GROUPCHK;
+  }
+  
+  /* Pop value off group stack */
+  if (status) {
+    (ps->gstack)[ps->gheight - 1] = 0;
+    (ps->gheight)--;
+  }
+  
+  /* Return status */
+  return status;
+}
 
 /*
  * Release a linked-list of names.
@@ -1472,6 +2161,34 @@ const char *genmap_errstr(int code) {
       
       case GENMAP_ERR_DUPNAME:
         pResult = "Duplicate definition of variable or constant name";
+        break;
+      
+      case GENMAP_ERR_PASSONE:
+        pResult = "Can't find name -- input changed since first pass";
+        break;
+      
+      case GENMAP_ERR_UNDEF:
+        pResult = "Undefined variable or constant";
+        break;
+      
+      case GENMAP_ERR_SETCONST:
+        pResult = "Attempted to change value of constant";
+        break;
+        
+      case GENMAP_ERR_UNDERFLW:
+        pResult = "Stack underflow";
+        break;
+      
+      case GENMAP_ERR_OVERFLOW:
+        pResult = "Stack overflow";
+        break;
+      
+      case GENMAP_ERR_NESTING:
+        pResult = "Too much group nesting";
+        break;
+      
+      case GENMAP_ERR_GROUPCHK:
+        pResult = "Group check failed";
         break;
       
       default:
