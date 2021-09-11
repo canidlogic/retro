@@ -379,6 +379,11 @@ static int op_additive(
     int     * perr,
     int32_t   samp_rate);
 
+static int op_scale(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate);
+
 static int interpret(
     ISTATE   * ps,
     SNSOURCE * pIn,
@@ -3164,6 +3169,99 @@ static int op_additive(
 }
 
 /*
+ * Interpret a "scale" operation.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ *   samp_rate - the sampling rate
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int op_scale(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate) {
+  
+  int status = 1;
+  GENVAR v_base;
+  GENVAR v_scale;
+  GENVAR gv;
+  GENERATOR *new_gen = NULL;
+  
+  /* Initialize structures */
+  genvar_init(&v_base);
+  genvar_init(&v_scale);
+  genvar_init(&gv);
+  
+  /* Check parameters */
+  if ((ps == NULL) || (perr == NULL)) {
+    abort();
+  }
+  if ((samp_rate != RATE_DVD) && (samp_rate != RATE_CD)) {
+    abort();
+  }
+  
+  /* Must be at least two values on stack */
+  if (istate_height(ps) < 2) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* Get the values and pop them from the stack */
+  if (status) {
+    if (!istate_index(ps, 1, &v_base, perr)) {
+      abort();
+    }
+    if (!istate_index(ps, 0, &v_scale, perr)) {
+      abort();
+    }
+    if (!istate_pop(ps, 2, perr)) {
+      abort();
+    }
+  }
+  
+  /* Make sure parameters have correct types */
+  if (status && ((genvar_type(&v_base) != GENVAR_GENOBJ) ||
+                  (!genvar_canfloat(&v_scale)))) {
+    status = 0;
+    *perr = GENMAP_ERR_PARAMTYP;
+  }
+  
+  /* Construct new scaling generator */
+  if (status) {
+    new_gen = generator_scale(
+                          genvar_getGen(&v_base),
+                          genvar_getFloat(&v_scale));
+  }
+  
+  /* Wrap generator and push onto interpreter stack */
+  if (status) {
+    genvar_setGen(&gv, new_gen);
+    if (!istate_push(ps, &gv, perr)) {
+      status = 0;
+    }
+  }
+  
+  /* Clear structures */
+  genvar_clear(&v_base);
+  genvar_clear(&v_scale);
+  genvar_clear(&gv);
+  
+  /* Release object references */
+  generator_release(new_gen);
+  new_gen = NULL;
+  
+  /* Return status */
+  return status;
+}
+
+/*
  * Interpret a generator map script.
  * 
  * ps is an interpreter state object that is used during interpretation.
@@ -3533,6 +3631,12 @@ static int interpret(
           
         } else if (strcmp(ent.pKey, "additive") == 0) {
           if (!op_additive(ps, perr, samp_rate)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+          
+        } else if (strcmp(ent.pKey, "scale") == 0) {
+          if (!op_scale(ps, perr, samp_rate)) {
             status = 0;
             *pline = snparser_count(pp);
           }
