@@ -118,11 +118,8 @@
 #
 #   freq_mul = 1.0
 #   freq_boost = 0.0
-#   base_amp = 1.0
 #   fm = undef
 #   am = undef
-#   fm_scale = 1.0
-#   am_scale = 1.0
 #   ny_limit = 20000
 #   hlimit = 20
 #
@@ -133,9 +130,8 @@
 [
   "fop", "sine",
   "freq_mul", 5.9,
-  "base_amp", 0.01,
   "adsr", =ADSR_EXAMPLE
-] operator @EXAMPLE_OP_1
+] operator 0.01 scale @EXAMPLE_OP_1
 
 [
   "fop", "sine",
