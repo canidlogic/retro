@@ -72,9 +72,9 @@
 # Retro.  Similar to ADSR envelopes, they are a reference-counted object
 # reference type.
 #
-# There are two different ways to construct generator objects,
-# corresponding to the two types of generators -- additive and
-# operators.
+# There are three different ways to construct generator objects,
+# corresponding to the three types of generators -- additive, scaling,
+# and operators.
 #
 # To construct an operator generator, use the "operator" operation.
 # When this operation is called, the top of the stack must be an integer
@@ -139,10 +139,15 @@
 
 [
   "fop", "sine",
-  "base_amp", 20000,
   "adsr", =ADSR_EXAMPLE,
   "fm", =EXAMPLE_OP_1
 ] operator @EXAMPLE_OP_2
+
+# Scaling generator objects are constructed by providing a generator
+# that they modify and a floating-point value that is multiplied to all
+# generated samples:
+
+=EXAMPLE_OP_2 20000.0 scale @EXAMPLE_SCALE
 
 # Additive generator objects are constructed by providing an array of
 # one or more generator object references that indicate the generators
@@ -157,7 +162,7 @@
 # Example additive generator constructor (with just a single generator
 # here):
 
-[=EXAMPLE_OP_2] additive @EXAMPLE_MIX
+[=EXAMPLE_SCALE] additive @EXAMPLE_MIX
 
 # At the end of interpretation, there must be a single generator object
 # reference on top of the interpreter stack, which is the root object of
