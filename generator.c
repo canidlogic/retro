@@ -132,6 +132,25 @@ struct GENERATOR_TAG {
 };
 
 /*
+ * Class data for scaling objects.
+ */
+typedef struct {
+  
+  /*
+   * The base generator object that is modified by scaling.
+   * 
+   * Class data structure owns a reference to this object.
+   */
+  GENERATOR *pBase;
+  
+  /*
+   * The finite scaling value to apply to all samples.
+   */
+  double scale;
+  
+} SCALE_CLASS;
+
+/*
  * Class data for operator objects.
  * 
  * All of these parameters are copied from the generator_op() function.
@@ -204,6 +223,12 @@ static double gen_additive(
     GENERATOR_OPDATA * pods,
     int32_t            pod_count);
 
+static double gen_scale(
+    void             * pClass,
+    int32_t            t,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count);
+
 static double gen_op(
     void             * pClass,
     int32_t            t,
@@ -215,15 +240,22 @@ static int32_t len_additive(
     GENERATOR_OPDATA * pods,
     int32_t            pod_count);
 
+static int32_t len_scale(
+    void             * pClass,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count);
+
 static int32_t len_op(
     void             * pClass,
     GENERATOR_OPDATA * pods,
     int32_t            pod_count);
 
 static int32_t bind_additive(void *pClass, int32_t start);
+static int32_t bind_scale(void *pClass, int32_t start);
 static int32_t bind_op(void *pClass, int32_t start);
 
 static void free_additive(void *pCustom);
+static void free_scale(void *pCustom);
 static void free_op(void *pCustom);
 
 /*
@@ -361,6 +393,39 @@ static double gen_additive(
   }
   
   /* Return summed result */
+  return result;
+}
+
+/*
+ * Scaling generator function.
+ * 
+ * Matches the interface of fp_gen.
+ */
+static double gen_scale(
+    void             * pClass,
+    int32_t            t,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count) {
+  
+  SCALE_CLASS *pc = NULL;
+  double result = 0.0;
+  
+  /* Check parameters */
+  if ((pClass == NULL) || (t < 0) ||
+      (pods == NULL) || (pod_count < 1)) {
+    abort();
+  }
+  
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (SCALE_CLASS *) pClass;
+  
+  /* Call through to underlying generator to get sample */
+  result = generator_invoke(pc->pBase, pods, pod_count, t);
+  
+  /* Multiply by scaling value */
+  result = result * pc->scale;
+  
+  /* Return scaled result */
   return result;
 }
 
@@ -599,6 +664,31 @@ static int32_t len_additive(
 }
 
 /*
+ * Length routine for scaling generators.
+ * 
+ * This matches the interface of fp_gen.
+ */
+static int32_t len_scale(
+    void             * pClass,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count) {
+  
+  SCALE_CLASS *pc = NULL;
+  
+  /* Check parameters */
+  if ((pClass == NULL) ||
+      (pods == NULL) || (pod_count < 1)) {
+    abort();
+  }
+  
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (SCALE_CLASS *) pClass;
+  
+  /* Call through to underlying generator */
+  return generator_length(pc->pBase, pods, pod_count);
+}
+
+/*
  * Length routine for operator generators.
  * 
  * This matches the interface of fp_gen.
@@ -656,6 +746,27 @@ static int32_t bind_additive(void *pClass, int32_t start) {
   
   /* Return updated count */
   return start;
+}
+
+/*
+ * Bind routine for scaling generators.
+ * 
+ * This matches the interface of fp_bind.
+ */
+static int32_t bind_scale(void *pClass, int32_t start) {
+  
+  SCALE_CLASS *pc = NULL;
+  
+  /* Check parameters */
+  if ((pClass == NULL) || (start < 0)) {
+    abort();
+  }
+  
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (SCALE_CLASS *) pClass;
+  
+  /* Call through to underlying generator */
+  return generator_bind(pc->pBase, start);
 }
 
 /* 
@@ -724,6 +835,31 @@ static void free_additive(void *pCustom) {
   
   /* Now we can free the array memory */
   free(pCustom);
+}
+
+/*
+ * Destructor routine for class data of scaling generators.
+ * 
+ * This matches the interface of fp_free.
+ */
+static void free_scale(void *pCustom) {
+  
+  SCALE_CLASS *pc = NULL;
+  
+  /* Check parameter */
+  if (pCustom == NULL) {
+    abort();
+  }
+
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (SCALE_CLASS *) pCustom;
+  
+  /* Release any references stored in the class data */
+  generator_release(pc->pBase);
+  pc->pBase = NULL;
+  
+  /* Now we can free the structure */
+  free(pc);
 }
 
 /*
@@ -844,6 +980,52 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count) {
   png->fLen = &len_additive;
   png->fBind = &bind_additive;
   png->fFree = &free_additive;
+  png->refcount = 1;
+  
+  /* Return the new generator */
+  return png;
+}
+
+/*
+ * generator_scale function.
+ */
+GENERATOR *generator_scale(GENERATOR *pBase, double scale) {
+  
+  SCALE_CLASS *pc = NULL;
+  GENERATOR *png = NULL;
+  
+  /* Check parameters */
+  if ((pBase == NULL) || (!isfinite(scale))) {
+    abort();
+  }
+  
+  /* Add reference to base generator */
+  generator_addref(pBase);
+  
+  /* Allocate scaling class data structure */
+  pc = (SCALE_CLASS *) malloc(sizeof(SCALE_CLASS));
+  if (pc == NULL) {
+    abort();
+  }
+  memset(pc, 0, sizeof(SCALE_CLASS));
+  
+  /* Initialize class data */
+  pc->pBase = pBase;
+  pc->scale = scale;
+  
+  /* Allocate a generator structure */
+  png = (GENERATOR *) malloc(sizeof(GENERATOR));
+  if (png == NULL) {
+    abort();
+  }
+  memset(png, 0, sizeof(GENERATOR));
+  
+  /* Initialize the generator structure */
+  png->pClass = (void *) pc;
+  png->fGen = &gen_scale;
+  png->fLen = &len_scale;
+  png->fBind = &bind_scale;
+  png->fFree = &free_scale;
   png->refcount = 1;
   
   /* Return the new generator */
