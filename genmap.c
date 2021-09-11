@@ -77,6 +77,14 @@
 #define ATOM_NOISE        (13)
 
 /*
+ * Arithmetic operations.
+ */
+#define ARITH_ADD (1)
+#define ARITH_SUB (2)
+#define ARITH_MUL (3)
+#define ARITH_DIV (4)
+
+/*
  * Type declarations
  * -----------------
  */
@@ -380,6 +388,11 @@ static int op_scale(
     ISTATE  * ps,
     int     * perr,
     int32_t   samp_rate);
+
+static int op_arith(
+    ISTATE  * ps,
+    int     * perr,
+    int       op);
 
 static int interpret(
     ISTATE   * ps,
@@ -3171,6 +3184,124 @@ static int op_scale(
 }
 
 /*
+ * Interpret "add"/"sub"/"mul"/"div" operation.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ *   op - one of the ARITH_ constants identifying the operation
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int op_arith(
+    ISTATE  * ps,
+    int     * perr,
+    int       op) {
+  
+  int status = 1;
+  GENVAR v_a;
+  GENVAR v_b;
+  GENVAR v_result;
+  
+  double a = 0.0;
+  double b = 0.0;
+  double result = 0.0;
+  
+  /* Initialize structures */
+  genvar_init(&v_a);
+  genvar_init(&v_b);
+  genvar_init(&v_result);
+  
+  /* Check parameters */
+  if ((ps == NULL) || (perr == NULL)) {
+    abort();
+  }
+  
+  /* Must be at least two values on stack */
+  if (istate_height(ps) < 2) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* Get the values and pop them from the stack */
+  if (status) {
+    if (!istate_index(ps, 1, &v_a, perr)) {
+      abort();
+    }
+    if (!istate_index(ps, 0, &v_b, perr)) {
+      abort();
+    }
+    if (!istate_pop(ps, 2, perr)) {
+      abort();
+    }
+  }
+  
+  /* Make sure parameters can be floating-point */
+  if (status && ((!genvar_canfloat(&v_a)) ||
+                  (!genvar_canfloat(&v_b)))) {
+    status = 0;
+    *perr = GENMAP_ERR_PARAMTYP;
+  }
+  
+  /* Get floating-point values */
+  if (status) {
+    a = genvar_getFloat(&v_a);
+    b = genvar_getFloat(&v_b);
+  }
+  
+  /* Compute result */
+  if (status) {
+    switch (op) {
+      case ARITH_ADD:
+        result = a + b;
+        break;
+        
+      case ARITH_SUB:
+        result = a - b;
+        break;
+      
+      case ARITH_MUL:
+        result = a * b;
+        break;
+      
+      case ARITH_DIV:
+        if (b != 0.0) {
+          result = a / b;
+        } else {
+          status = 0;
+          *perr = GENMAP_ERR_ARITH;
+        }
+        break;
+      
+      default:
+        /* Unrecognized operation */
+        abort();
+    }
+  }
+  
+  /* Wrap result and push onto interpreter stack */
+  if (status) {
+    genvar_setFloat(&v_result, result);
+    if (!istate_push(ps, &v_result, perr)) {
+      status = 0;
+    }
+  }
+  
+  /* Clear structures */
+  genvar_clear(&v_a);
+  genvar_clear(&v_b);
+  genvar_clear(&v_result);
+  
+  /* Return status */
+  return status;
+}
+
+/*
  * Interpret a generator map script.
  * 
  * ps is an interpreter state object that is used during interpretation.
@@ -3549,6 +3680,30 @@ static int interpret(
             status = 0;
             *pline = snparser_count(pp);
           }
+        
+        } else if (strcmp(ent.pKey, "add") == 0) {
+          if (!op_arith(ps, perr, ARITH_ADD)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        
+        } else if (strcmp(ent.pKey, "sub") == 0) {
+          if (!op_arith(ps, perr, ARITH_SUB)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        
+        } else if (strcmp(ent.pKey, "mul") == 0) {
+          if (!op_arith(ps, perr, ARITH_MUL)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        
+        } else if (strcmp(ent.pKey, "div") == 0) {
+          if (!op_arith(ps, perr, ARITH_DIV)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
           
         } else {
           /* Unrecognized operation */
@@ -3854,6 +4009,10 @@ const char *genmap_errstr(int code) {
       
       case GENMAP_ERR_OPMISS:
         pResult = "Missing required operator parameter";
+        break;
+      
+      case GENMAP_ERR_ARITH:
+        pResult = "Arithmetic error during interpretation";
         break;
       
       default:
