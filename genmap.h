@@ -59,6 +59,7 @@
 #define GENMAP_ERR_RANGE    (20)  /* Parameter out of range */
 #define GENMAP_ERR_OPREDEF  (21)  /* op parameter redefined */
 #define GENMAP_ERR_OPMISS   (22)  /* Missing required op parameter */
+#define GENMAP_ERR_ARITH    (23)  /* Arithmetic error */
 
 /*
  * Type declarations
