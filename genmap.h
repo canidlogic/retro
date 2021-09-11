@@ -48,6 +48,17 @@
 #define GENMAP_ERR_OPENGRP  (9)   /* Open group at end of script */
 #define GENMAP_ERR_FINAL    (10)  /* Invalid final stack state */
 #define GENMAP_ERR_RESULTYP (11)  /* Wrong type for result */
+#define GENMAP_ERR_NOSIG    (12)  /* Can't read valid signature */
+#define GENMAP_ERR_BADSIG   (13)  /* Unrecognized generator map type */
+#define GENMAP_ERR_ENTTYPE  (14)  /* Unsupported Shastina entity type */
+#define GENMAP_ERR_HUGEARR  (15)  /* Array has too many elements */
+#define GENMAP_ERR_ATOM     (16)  /* Unrecognized atom */
+#define GENMAP_ERR_NUMERIC  (17)  /* Can't parse numeric literal */
+#define GENMAP_ERR_BADOP    (18)  /* Unrecognized Shastina operation */
+#define GENMAP_ERR_PARAMTYP (19)  /* Wrong parameter type */
+#define GENMAP_ERR_RANGE    (20)  /* Parameter out of range */
+#define GENMAP_ERR_OPREDEF  (21)  /* op parameter redefined */
+#define GENMAP_ERR_OPMISS   (22)  /* Missing required op parameter */
 
 /*
  * Type declarations
