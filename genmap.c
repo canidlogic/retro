@@ -10,10 +10,14 @@
 #include "genmap.h"
 #include "adsr.h"
 
+#include <errno.h>
 #include <math.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* @@TODO: */
+#include <stdio.h>
 
 /*
  * Constants
@@ -53,6 +57,32 @@
  * setting it to a large value.
  */
 #define ISTACK_NEST   (32)
+
+/*
+ * Atom integer values.
+ * 
+ * These must all be zero or greater.
+ * 
+ * Mapping of strings to atoms determined by atom_map() function.
+ */
+#define ATOM_FOP          (1)
+#define ATOM_ADSR         (2)
+#define ATOM_FREQ_MUL     (3)
+#define ATOM_FREQ_BOOST   (4)
+#define ATOM_BASE_AMP     (5)
+#define ATOM_FM_FEEDBACK  (6)
+#define ATOM_AM_FEEDBACK  (7)
+#define ATOM_FM           (8)
+#define ATOM_AM           (9)
+#define ATOM_FM_SCALE     (10)
+#define ATOM_AM_SCALE     (11)
+#define ATOM_NY_LIMIT     (12)
+#define ATOM_HLIMIT       (13)
+#define ATOM_SINE         (14)
+#define ATOM_SQUARE       (15)
+#define ATOM_TRIANGLE     (16)
+#define ATOM_SAWTOOTH     (17)
+#define ATOM_NOISE        (18)
 
 /*
  * Type declarations
@@ -334,6 +364,25 @@ static NAME_DICT *make_dict(NAME_LINK *pNames);
 static void free_dict(NAME_DICT *pd);
 static int32_t count_dict(NAME_DICT *pd);
 static int32_t name_index(NAME_DICT *pd, const char *pName);
+
+static int atom_map(const char *pName);
+static int check_numeric(const char *pstr);
+static int parseInt(const char *pstr, int32_t *pv);
+
+static int op_adsr(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate);
+
+static int op_operator(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate);
+
+static int op_additive(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate);
 
 static int interpret(
     ISTATE   * ps,
@@ -2042,6 +2091,1140 @@ static int32_t name_index(NAME_DICT *pd, const char *pName) {
 }
 
 /*
+ * Map an atom name to an atom integer value.
+ * 
+ * Valid atom values are zero or greater and have constant values ATOM_
+ * defined earlier.  -1 returned if given name is not a recognized atom.
+ * 
+ * Parameters:
+ * 
+ *   pName - the atom name
+ * 
+ * Return:
+ * 
+ *   the atom integer value, or -1 if not recognized
+ */
+static int atom_map(const char *pName) {
+  
+  int result = 0;
+  
+  /* Check parameter */
+  if (pName == NULL) {
+    abort();
+  }
+  
+  /* Determine atom value */
+  if (strcmp(pName, "fop") == 0) {
+    result = ATOM_FOP;
+  
+  } else if (strcmp(pName, "adsr") == 0) {
+    result = ATOM_ADSR;
+  
+  } else if (strcmp(pName, "freq_mul") == 0) {
+    result = ATOM_FREQ_MUL;
+  
+  } else if (strcmp(pName, "freq_boost") == 0) {
+    result = ATOM_FREQ_BOOST;
+  
+  } else if (strcmp(pName, "base_amp") == 0) {
+    result = ATOM_BASE_AMP;
+  
+  } else if (strcmp(pName, "fm_feedback") == 0) {
+    result = ATOM_FM_FEEDBACK;
+  
+  } else if (strcmp(pName, "am_feedback") == 0) {
+    result = ATOM_AM_FEEDBACK;
+  
+  } else if (strcmp(pName, "fm") == 0) {
+    result = ATOM_FM;
+  
+  } else if (strcmp(pName, "am") == 0) {
+    result = ATOM_AM;
+  
+  } else if (strcmp(pName, "fm_scale") == 0) {
+    result = ATOM_FM_SCALE;
+    
+  } else if (strcmp(pName, "am_scale") == 0) {
+    result = ATOM_AM_SCALE;
+  
+  } else if (strcmp(pName, "ny_limit") == 0) {
+    result = ATOM_NY_LIMIT;
+  
+  } else if (strcmp(pName, "hlimit") == 0) {
+    result = ATOM_HLIMIT;
+  
+  } else if (strcmp(pName, "sine") == 0) {
+    result = ATOM_SINE;
+  
+  } else if (strcmp(pName, "square") == 0) {
+    result = ATOM_SQUARE;
+  
+  } else if (strcmp(pName, "triangle") == 0) {
+    result = ATOM_TRIANGLE;
+  
+  } else if (strcmp(pName, "sawtooth") == 0) {
+    result = ATOM_SAWTOOTH;
+  
+  } else if (strcmp(pName, "noise") == 0) {
+    result = ATOM_NOISE;
+  
+  } else {
+    /* Unrecognized atom */
+    result = -1;
+  }
+  
+  /* Return result */
+  return result;
+}
+
+/*
+ * Check a numeric string.
+ * 
+ * Parameters:
+ * 
+ *   pstr - the string to check
+ * 
+ * Return:
+ * 
+ *   greater than zero if numeric string is valid floating-point
+ *   literal, zero if numeric string is valid integer literal, and less
+ *   than zero if not valid numeric literal
+ */
+static int check_numeric(const char *pstr) {
+  
+  int status = 1;
+  int has_dec = 0;
+  int is_float = 0;
+  
+  /* Check parameter */
+  if (pstr == NULL) {
+    abort();
+  }
+  
+  /* If it starts with a sign, skip the sign */
+  if ((*pstr == '+') || (*pstr == '-')) {
+    pstr++;
+  }
+  
+  /* If we have a decimal digit, set has_dec */
+  if ((*pstr >= '0') && (*pstr <= '9')) {
+    has_dec = 1;
+  }
+  
+  /* Skip over initial sequence of decimal digits */
+  for( ; (*pstr >= '0') && (*pstr <= '9'); pstr++);
+  
+  /* Handle optional period sequence if present */
+  if (*pstr == '.') {
+    /* Set floating-point flag */
+    is_float = 1;
+    
+    /* Move beyond period */
+    pstr++;
+    
+    /* If we have at least one decimal digit, set has_dec */
+    if ((*pstr >= '0') && (*pstr <= '9')) {
+      has_dec = 1;
+    }
+    
+    /* Skip over fractional sequence of decimal digits */
+    for( ; (*pstr >= '0') && (*pstr <= '9'); pstr++);
+  }
+  
+  /* Handle optional exponent sequence if present */
+  if ((*pstr == 'E') || (*pstr == 'e')) {
+    /* Set floating-point flag */
+    is_float = 1;
+    
+    /* Move beyond letter */
+    pstr++;
+    
+    /* Skip sign if present */
+    if ((*pstr == '+') || (*pstr == '-')) {
+      pstr++;
+    }
+    
+    /* Make sure at least one decimal digit */
+    if ((*pstr < '0') || (*pstr > '9')) {
+      status = 0;
+    }
+    
+    /* Skip over exponent sequence of decimal digits */
+    if (status) {
+      for( ; (*pstr >= '0') && (*pstr <= '9'); pstr++);
+    }
+  }
+  
+  /* If we are now not at the end of the string, not valid */
+  if (status && (*pstr != 0)) {
+    status = 0;
+  }
+  
+  /* Must have been at least one substantial decimal */
+  if (status && (!has_dec)) {
+    status = 0;
+  }
+  
+  /* Set status for return and return it */
+  if (status && is_float) {
+    status = 1;
+  } else if (status) {
+    status = 0;
+  } else {
+    status = -1;
+  }
+  return status;
+}
+
+/*
+ * Parse the given string as a signed integer.
+ * 
+ * pstr is the string to parse.
+ * 
+ * pv points to the integer value to use to return the parsed numeric
+ * value if the function is successful.
+ * 
+ * In two's complement, this function will not successfully parse the
+ * least negative value.
+ * 
+ * Parameters:
+ * 
+ *   pstr - the string to parse
+ * 
+ *   pv - pointer to the return numeric value
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if failure
+ */
+static int parseInt(const char *pstr, int32_t *pv) {
+  
+  int negflag = 0;
+  int32_t result = 0;
+  int status = 1;
+  int32_t d = 0;
+  
+  /* Check parameters */
+  if ((pstr == NULL) || (pv == NULL)) {
+    abort();
+  }
+  
+  /* If first character is a sign character, set negflag appropriately
+   * and skip it */
+  if (*pstr == '+') {
+    negflag = 0;
+    pstr++;
+  } else if (*pstr == '-') {
+    negflag = 1;
+    pstr++;
+  } else {
+    negflag = 0;
+  }
+  
+  /* Make sure we have at least one digit */
+  if (*pstr == 0) {
+    status = 0;
+  }
+  
+  /* Parse all digits */
+  if (status) {
+    for( ; *pstr != 0; pstr++) {
+    
+      /* Make sure in range of digits */
+      if ((*pstr < '0') || (*pstr > '9')) {
+        status = 0;
+      }
+    
+      /* Get numeric value of digit */
+      if (status) {
+        d = (int32_t) (*pstr - '0');
+      }
+      
+      /* Multiply result by 10, watching for overflow */
+      if (status) {
+        if (result <= INT32_MAX / 10) {
+          result = result * 10;
+        } else {
+          status = 0; /* overflow */
+        }
+      }
+      
+      /* Add in digit value, watching for overflow */
+      if (status) {
+        if (result <= INT32_MAX - d) {
+          result = result + d;
+        } else {
+          status = 0; /* overflow */
+        }
+      }
+    
+      /* Leave loop if error */
+      if (!status) {
+        break;
+      }
+    }
+  }
+  
+  /* Invert result if negative mode */
+  if (status && negflag) {
+    result = -(result);
+  }
+  
+  /* Write result if successful */
+  if (status) {
+    *pv = result;
+  }
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Interpret an "adsr" operation.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ *   samp_rate - the sampling rate
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int op_adsr(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate) {
+  
+  int status = 1;
+  
+  GENVAR gA;
+  GENVAR gD;
+  GENVAR gS;
+  GENVAR gR;
+  GENVAR gv;
+  
+  double a = 0.0;
+  double d = 0.0;
+  double s = 0.0;
+  double r = 0.0;
+  
+  ADSR_OBJ *pADSR = NULL;
+  
+  /* Initialize structures */
+  genvar_init(&gA);
+  genvar_init(&gD);
+  genvar_init(&gS);
+  genvar_init(&gR);
+  genvar_init(&gv);
+  
+  /* Check parameters */
+  if ((ps == NULL) || (perr == NULL)) {
+    abort();
+  }
+  if ((samp_rate != RATE_DVD) && (samp_rate != RATE_CD)) {
+    abort();
+  }
+  
+  /* Check we have at least four values on stack */
+  if (istate_height(ps) < 4) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* Get the parameters and pop them from stack */
+  if (status) {
+    if (!istate_index(ps, 3, &gA, perr)) {
+      abort();
+    }
+    if (!istate_index(ps, 2, &gD, perr)) {
+      abort();
+    }
+    if (!istate_index(ps, 1, &gS, perr)) {
+      abort();
+    }
+    if (!istate_index(ps, 0, &gR, perr)) {
+      abort();
+    }
+    if (!istate_pop(ps, 4, perr)) {
+      abort();
+    }
+  }
+  
+  /* Make sure all parameters can be floats */
+  if (status) {
+    if ((!genvar_canfloat(&gA)) ||
+        (!genvar_canfloat(&gD)) ||
+        (!genvar_canfloat(&gS)) ||
+        (!genvar_canfloat(&gR))) {
+      status = 0;
+      *perr = GENMAP_ERR_PARAMTYP;
+    }
+  }
+  
+  /* Retrieve all float values */
+  if (status) {
+    a = genvar_getFloat(&gA);
+    d = genvar_getFloat(&gD);
+    s = genvar_getFloat(&gS);
+    r = genvar_getFloat(&gR);
+  }
+  
+  /* ADR must be zero or greater */
+  if (status) {
+    if ((!(a >= 0.0)) || (!(d >= 0.0)) || (!(r >= 0.0))) {
+      status = 0;
+      *perr = GENMAP_ERR_RANGE;
+    }
+  }
+  
+  /* S must be in [0.0, 1.0] */
+  if (status) {
+    if (!((s >= 0.0) && (s <= 1.0))) {
+      status = 0;
+      *perr = GENMAP_ERR_RANGE;
+    }
+  }
+  
+  /* Create a new ADSR object */
+  if (status) {
+    pADSR = adsr_alloc(a, d, s, r, samp_rate);
+  }
+  
+  /* Write ADSR object reference into local structure */
+  if (status) {
+    genvar_setADSR(&gv, pADSR);
+  }
+  
+  /* Push ADSR object reference onto interpreter stack */
+  if (status) {
+    if (!istate_push(ps, &gv, perr)) {
+      status = 0;
+    }
+  }
+  
+  /* Release local reference to ADSR object, if present */
+  adsr_release(pADSR);
+  pADSR = NULL;
+  
+  /* Clear local structures */
+  genvar_clear(&gA);
+  genvar_clear(&gD);
+  genvar_clear(&gS);
+  genvar_clear(&gR);
+  genvar_clear(&gv);
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Interpret an "operator" operation.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ *   samp_rate - the sampling rate
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int op_operator(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate) {
+  
+  int status = 1;
+  GENVAR gv;
+  int32_t pcount = 0;
+  int32_t x = 0;
+  int aval = 0;
+  GENERATOR *new_gen = NULL;
+  
+  int def_fop = 0;
+  int def_adsr = 0;
+  int def_freq_mul = 0;
+  int def_freq_boost = 0;
+  int def_base_amp = 0;
+  int def_fm_feedback = 0;
+  int def_am_feedback = 0;
+  int def_fm = 0;
+  int def_am = 0;
+  int def_fm_scale = 0;
+  int def_am_scale = 0;
+  int def_ny_limit = 0;
+  int def_hlimit = 0;
+  
+  /* Default values set below */
+  int val_fop = 0;
+  ADSR_OBJ *val_adsr = NULL;
+  double val_freq_mul = 1.0;
+  double val_freq_boost = 0.0;
+  double val_base_amp = 1.0;
+  double val_fm_feedback = 0.0;
+  double val_am_feedback = 0.0;
+  GENERATOR *val_fm = NULL;
+  GENERATOR *val_am = NULL;
+  double val_fm_scale = 1.0;
+  double val_am_scale = 1.0;
+  int32_t val_ny_limit = 20000;
+  int32_t val_hlimit = 20;
+  
+  /* Initialize structures */
+  genvar_init(&gv);
+  
+  /* Check parameters */
+  if ((ps == NULL) || (perr == NULL)) {
+    abort();
+  }
+  if ((samp_rate != RATE_DVD) && (samp_rate != RATE_CD)) {
+    abort();
+  }
+  
+  /* Must be at least one value on stack */
+  if (istate_height(ps) < 1) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* Pop value into local structure */
+  if (status) {
+    if (!istate_index(ps, 0, &gv, perr)) {
+      abort();
+    }
+    if (!istate_pop(ps, 1, perr)) {
+      abort();
+    }
+  }
+  
+  /* Value must be integer */
+  if (status && (genvar_type(&gv) != GENVAR_INT)) {
+    status = 0;
+    *perr = GENMAP_ERR_PARAMTYP;
+  }
+  
+  /* Get the parameter count and check that it is zero or greater */
+  if (status) {
+    pcount = genvar_getInt(&gv);
+    if (pcount < 0) {
+      status = 0;
+      *perr = GENMAP_ERR_RANGE;
+    }
+  }
+  
+  /* Check that (parameter count) elements are on stack */
+  if (status && (istate_height(ps) < pcount)) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* The parameter count must be divisible by two so everything is in
+   * pairs */
+  if (status && ((pcount % 2) != 0)) {
+    status = 0;
+    *perr = GENMAP_ERR_RANGE;
+  }
+  
+  /* Go through each pair of array elements */
+  if (status) {
+    for(x = pcount - 1; x >= 1; x -= 2) {
+      
+      /* Get the atom that determines which parameter */
+      if (!istate_index(ps, x, &gv, perr)) {
+        abort();
+      }
+      if (genvar_type(&gv) != GENVAR_ATOM) {
+        status = 0;
+        *perr = GENMAP_ERR_PARAMTYP;
+      }
+      if (status) {
+        aval = genvar_getAtom(&gv);
+      }
+      
+      /* Get the value of this parameter pair */
+      if (status) {
+        if (!istate_index(ps, x - 1, &gv, perr)) {
+          abort();
+        }
+      }
+      
+      /* Handle the different parameters */
+      if (status) {
+        switch (aval) {
+          
+          case ATOM_FOP:
+            /* Check whether already defined */
+            if (def_fop) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_fop = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (genvar_type(&gv) != GENVAR_ATOM)) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              switch (genvar_getAtom(&gv)) {
+                
+                case ATOM_SINE:
+                  val_fop = GENERATOR_F_SINE;
+                  break;
+                
+                case ATOM_SQUARE:
+                  val_fop = GENERATOR_F_SQUARE;
+                  break;
+                
+                case ATOM_TRIANGLE:
+                  val_fop = GENERATOR_F_TRIANGLE;
+                  break;
+                
+                case ATOM_SAWTOOTH:
+                  val_fop = GENERATOR_F_SAWTOOTH;
+                  break;
+                
+                case ATOM_NOISE:
+                  val_fop = GENERATOR_F_NOISE;
+                  break;
+                
+                default:
+                  /* Unrecognized atom for wave function */
+                  status = 0;
+                  *perr = GENMAP_ERR_RANGE;
+              }
+            }
+            
+            break;
+          
+          case ATOM_ADSR:
+            /* Check whether already defined */
+            if (def_adsr) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_adsr = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (genvar_type(&gv) != GENVAR_ADSR)) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_adsr = genvar_getADSR(&gv);
+              adsr_addref(val_adsr);
+            }
+            
+            break;
+          
+          case ATOM_FREQ_MUL:
+            /* Check whether already defined */
+            if (def_freq_mul) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_freq_mul = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (!genvar_canfloat(&gv))) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_freq_mul = genvar_getFloat(&gv);
+              if (!(val_freq_mul >= 0.0)) {
+                status = 0;
+                *perr = GENMAP_ERR_RANGE;
+              }
+            }
+            
+            break;
+          
+          case ATOM_FREQ_BOOST:
+            /* Check whether already defined */
+            if (def_freq_boost) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_freq_boost = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (!genvar_canfloat(&gv))) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_freq_boost = genvar_getFloat(&gv);
+            }
+            
+            break;
+          
+          case ATOM_BASE_AMP:
+            /* Check whether already defined */
+            if (def_base_amp) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_base_amp = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (!genvar_canfloat(&gv))) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_base_amp = genvar_getFloat(&gv);
+              if (!(val_base_amp >= 0.0)) {
+                status = 0;
+                *perr = GENMAP_ERR_RANGE;
+              }
+            }
+            
+            break;
+          
+          case ATOM_FM_FEEDBACK:
+            /* Check whether already defined */
+            if (def_fm_feedback) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_fm_feedback = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (!genvar_canfloat(&gv))) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_fm_feedback = genvar_getFloat(&gv);
+            }
+            
+            break;
+          
+          case ATOM_AM_FEEDBACK:
+            /* Check whether already defined */
+            if (def_am_feedback) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_am_feedback = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (!genvar_canfloat(&gv))) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_am_feedback = genvar_getFloat(&gv);
+            }
+            
+            break;
+          
+          case ATOM_FM:
+            /* Check whether already defined */
+            if (def_fm) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_fm = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (genvar_type(&gv) != GENVAR_GENOBJ) &&
+                  (genvar_type(&gv) != GENVAR_UNDEF)) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status && (genvar_type(&gv) == GENVAR_GENOBJ)) {
+              val_fm = genvar_getGen(&gv);
+              generator_addref(val_fm);
+            } else if (status) {
+              /* Set a NULL pointer */
+              val_fm = NULL;
+            }
+            
+            break;
+          
+          case ATOM_AM:
+            /* Check whether already defined */
+            if (def_am) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_am = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (genvar_type(&gv) != GENVAR_GENOBJ) &&
+                  (genvar_type(&gv) != GENVAR_UNDEF)) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status && (genvar_type(&gv) == GENVAR_GENOBJ)) {
+              val_am = genvar_getGen(&gv);
+              generator_addref(val_am);
+            } else if (status) {
+              /* Set a NULL pointer */
+              val_am = NULL;
+            }
+            
+            break;
+          
+          case ATOM_FM_SCALE:
+            /* Check whether already defined */
+            if (def_fm_scale) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_fm_scale = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (!genvar_canfloat(&gv))) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_fm_scale = genvar_getFloat(&gv);
+            }
+            
+            break;
+          
+          case ATOM_AM_SCALE:
+            /* Check whether already defined */
+            if (def_am_scale) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_am_scale = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (!genvar_canfloat(&gv))) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_am_scale = genvar_getFloat(&gv);
+            }
+            
+            break;
+          
+          case ATOM_NY_LIMIT:
+            /* Check whether already defined */
+            if (def_ny_limit) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_ny_limit = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (genvar_type(&gv) != GENVAR_INT)) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_ny_limit = genvar_getInt(&gv);
+              if ((val_ny_limit < 0) || (val_ny_limit > samp_rate)) {
+                status = 0;
+                *perr = GENMAP_ERR_RANGE;
+              }
+            }
+            
+            break;
+          
+          case ATOM_HLIMIT:
+            /* Check whether already defined */
+            if (def_hlimit) {
+              status = 0;
+              *perr = GENMAP_ERR_OPREDEF;
+            } else {
+              def_hlimit = 1;
+            }
+            
+            /* Check type of value */
+            if (status && (genvar_type(&gv) != GENVAR_INT)) {
+              status = 0;
+              *perr = GENMAP_ERR_PARAMTYP;
+            }
+            
+            /* Write appropriate value */
+            if (status) {
+              val_hlimit = genvar_getInt(&gv);
+              if (val_hlimit < 0) {
+                status = 0;
+                *perr = GENMAP_ERR_RANGE;
+              }
+            }
+            
+            break;
+          
+          default:
+            /* Unrecognized parameter atom */
+            status = 0;
+            *perr = GENMAP_ERR_RANGE;
+        }
+      }
+      
+      /* Leave loop if error */
+      if (!status) {
+        break;
+      }
+    }
+  }
+  
+  /* Pop all parameters off the stack */
+  if (status) {
+    if (!istate_pop(ps, pcount, perr)) {
+      abort();
+    }
+  }
+  
+  /* Make sure required "fop" and "adsr" parameters were defined */
+  if (status && ((!def_fop) || (!def_adsr))) {
+    status = 0;
+    *perr = GENMAP_ERR_OPMISS;
+  }
+  
+  /* Construct the operator generator */
+  if (status) {
+    new_gen = generator_op(
+                val_fop,
+                val_freq_mul,
+                val_freq_boost,
+                val_base_amp,
+                val_adsr,
+                val_fm_feedback,
+                val_am_feedback,
+                val_fm,
+                val_am,
+                val_fm_scale,
+                val_am_scale,
+                samp_rate,
+                val_ny_limit,
+                val_hlimit);
+  }
+  
+  /* Wrap new generator and push onto operator stack */
+  if (status) {
+    genvar_setGen(&gv, new_gen);
+    if (!istate_push(ps, &gv, perr)) {
+      status = 0;
+    }
+  }
+  
+  /* Release references to objects */
+  generator_release(new_gen);
+  new_gen = NULL;
+  
+  adsr_release(val_adsr);
+  val_adsr = NULL;
+  
+  generator_release(val_fm);
+  val_fm = NULL;
+  
+  generator_release(val_am);
+  val_am = NULL;
+  
+  /* Clear structures */
+  genvar_clear(&gv);
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Interpret an "additive" operation.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ *   samp_rate - the sampling rate
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int op_additive(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate) {
+  
+  int status = 1;
+  GENVAR gv;
+  int32_t x = 0;
+  int32_t i = 0;
+  int32_t pcount = 0;
+  GENERATOR **ppg = NULL;
+  GENERATOR *new_gen = NULL;
+  
+  /* Initialize structures */
+  genvar_init(&gv);
+  
+  /* Check parameters */
+  if ((ps == NULL) || (perr == NULL)) {
+    abort();
+  }
+  if ((samp_rate != RATE_DVD) && (samp_rate != RATE_CD)) {
+    abort();
+  }
+  
+  /* Must be at least one value on stack */
+  if (istate_height(ps) < 1) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* Pop value into local structure */
+  if (status) {
+    if (!istate_index(ps, 0, &gv, perr)) {
+      abort();
+    }
+    if (!istate_pop(ps, 1, perr)) {
+      abort();
+    }
+  }
+  
+  /* Value must be integer */
+  if (status && (genvar_type(&gv) != GENVAR_INT)) {
+    status = 0;
+    *perr = GENMAP_ERR_PARAMTYP;
+  }
+  
+  /* Get the parameter count and check that it is one or greater */
+  if (status) {
+    pcount = genvar_getInt(&gv);
+    if (pcount < 1) {
+      status = 0;
+      *perr = GENMAP_ERR_RANGE;
+    }
+  }
+  
+  /* Check that (parameter count) elements are on stack */
+  if (status && (istate_height(ps) < pcount)) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* Allocate an array of generator pointers and set them all to NULL */
+  if (status) {
+    ppg = (GENERATOR **) calloc((size_t) pcount, sizeof(GENERATOR *));
+    if (ppg == NULL) {
+      abort();
+    }
+    for(x = 0; x < pcount; x++) {
+      ppg[x] = NULL;
+    }
+  }
+  
+  /* Get all of the generator pointers */
+  if (status) {
+    i = 0;
+    for(x = pcount - 1; x >= 0; x--) {
+      /* Get current value */
+      if (!istate_index(ps, x, &gv, perr)) {
+        abort();
+      }
+      
+      /* Make sure value is generator */
+      if (genvar_type(&gv) != GENVAR_GENOBJ) {
+        status = 0;
+        *perr = GENMAP_ERR_PARAMTYP;
+      }
+      
+      /* Get value into array (reference count not affected) */
+      if (status) {
+        ppg[i] = genvar_getGen(&gv);
+        i++;
+      }
+      
+      /* Leave loop if error */
+      if (!status) {
+        break;
+      }
+    }
+  }
+  
+  /* Construct a new generator object */
+  if (status) {
+    new_gen = generator_additive(ppg, pcount);
+  }
+  
+  /* Pop values from stack */
+  if (status) {
+    if (!istate_pop(ps, pcount, perr)) {
+      abort();
+    }
+  }
+  
+  /* Wrap object and push onto interpreter stack */
+  if (status) {
+    genvar_setGen(&gv, new_gen);
+    if (!istate_push(ps, &gv, perr)) {
+      status = 0;
+    }
+  }
+  
+  /* Free array if allocated */
+  if (ppg != NULL) {
+    free(ppg);
+    ppg = NULL;
+  }
+  
+  /* Release local objects */
+  generator_release(new_gen);
+  new_gen = NULL;
+  
+  /* Clear structures */
+  genvar_clear(&gv);
+  
+  /* Return status */
+  return status;
+}
+
+/*
  * Interpret a generator map script.
  * 
  * ps is an interpreter state object that is used during interpretation.
@@ -2087,35 +3270,371 @@ static int interpret(
     long     * pline,
     int32_t    samp_rate) {
   
-  /* @@TODO: */
-  ADSR_OBJ *adsr = NULL;
+  int status = 1;
+  int ival = 0;
+  int32_t i32val = 0;
+  double dval = 0.0;
+  char *endptr = NULL;
+  SNPARSER *pp = NULL;
+  SNENTITY ent;
   GENVAR gv;
-  genvar_init(&gv);
-  adsr = adsr_alloc(
-            25.0,   /* Attack duration in milliseconds */
-            0.0,    /* Decay duration in milliseconds */
-            1.0,    /* Sustain level multiplier */
-            250.0,  /* Release duration in milliseconds */
-            samp_rate);
-  genvar_setGen(&gv, generator_op(
-              GENERATOR_F_SINE,   /* function */
-              1.0,                /* frequency multiplier */
-              0.0,                /* frequency boost */
-              20000.0,            /* base amplitude */
-              adsr,               /* ADSR envelope */
-              0.0,                /* FM feedback */
-              0.0,                /* AM feedback */
-              NULL,               /* FM modulator */
-              NULL,               /* AM modulator */
-              0.0,                /* FM modulator scale */
-              0.0,                /* AM modulator scale */
-              samp_rate,
-              20000,              /* ny_limit */
-              0));                /* hlimit */
   
-  istate_push(ps, &gv, perr);
-  adsr_release(adsr);
-  return 1;
+  /* Initialize structures */
+  memset(&ent, 0, sizeof(SNENTITY));
+  genvar_init(&gv);
+  
+  /* Check parameters */
+  if ((ps == NULL) || (pIn == NULL) ||
+      (perr == NULL) || (pline == NULL)) {
+    abort();
+  }
+  if ((samp_rate != RATE_DVD) && (samp_rate != RATE_CD)) {
+    abort();
+  }
+  
+  /* Allocate parser */
+  pp = snparser_alloc();
+  
+  /* Read the signature */
+  if (status) {
+    snparser_read(pp, &ent, pIn);
+    if (ent.status < 0) {
+      status = 0;
+      *perr = ent.status;
+      *pline = snparser_count(pp);
+    }
+    if (status && (ent.status != SNENTITY_BEGIN_META)) {
+      status = 0;
+      *perr = GENMAP_ERR_NOSIG;
+      *pline = 0;
+    }
+  }
+  
+  if (status) {
+    snparser_read(pp, &ent, pIn);
+    if (ent.status < 0) {
+      status = 0;
+      *perr = ent.status;
+      *pline = snparser_count(pp);
+    }
+    if (status && (ent.status != SNENTITY_META_TOKEN)) {
+      status = 0;
+      *perr = GENMAP_ERR_NOSIG;
+      *pline = 0;
+    }
+    if (status && (strcmp(ent.pKey, "fm") != 0)) {
+      status = 0;
+      *perr = GENMAP_ERR_BADSIG;
+      *pline = 0;
+    }
+  }
+  
+  if (status) {
+    snparser_read(pp, &ent, pIn);
+    if (ent.status < 0) {
+      status = 0;
+      *perr = ent.status;
+      *pline = snparser_count(pp);
+    }
+    if (status && (ent.status != SNENTITY_END_META)) {
+      status = 0;
+      *perr = GENMAP_ERR_NOSIG;
+      *pline = 0;
+    }
+  }
+  
+  /* Interpret the rest of the tokens in the script */
+  if (status) {
+    for(snparser_read(pp, &ent, pIn);
+        ent.status > 0;
+        snparser_read(pp, &ent, pIn)) {
+      
+      /* We read a non-EOF token, so handle the different token types */
+      if (ent.status == SNENTITY_STRING) {
+        /* String literal -- we only supported double-quoted strings
+         * with no prefix */
+        if ((ent.str_type != SNSTRING_QUOTED) ||
+            ((ent.pKey)[0] != 0)) {
+          status = 0;
+          *perr = GENMAP_ERR_ENTTYPE;
+          *pline = snparser_count(pp);
+        }
+        
+        /* Convert string value to atom */
+        if (status) {
+          ival = atom_map(ent.pValue);
+          if (ival < 0) {
+            status = 0;
+            *perr = GENMAP_ERR_ATOM;
+            *pline = snparser_count(pp);
+          }
+        }
+        
+        /* Write atom integer value into local structure */
+        if (status) {
+          genvar_setAtom(&gv, ival);
+        }
+        
+        /* Push atom onto stack */
+        if (status) {
+          if (!istate_push(ps, &gv, perr)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        }
+      
+      } else if (ent.status == SNENTITY_NUMERIC) {
+        /* Numeric literal -- check what type and if valid */
+        ival = check_numeric(ent.pKey);
+        if (ival > 0) {
+          /* Floating-point literal -- parse floating point */
+          errno = 0;
+          dval = strtod(ent.pKey, &endptr);
+          if (errno != 0) {
+            status = 0;
+            *perr = GENMAP_ERR_NUMERIC;
+            *pline = snparser_count(pp);
+          
+          } else if (!isfinite(dval)) {
+            status = 0;
+            *perr = GENMAP_ERR_NUMERIC;
+            *pline = snparser_count(pp);
+          
+          } else if (*endptr != 0) {
+            status = 0;
+            *perr = GENMAP_ERR_NUMERIC;
+            *pline = snparser_count(pp);
+          }
+          
+          /* Write floating-point value into local structure */
+          if (status) {
+            genvar_setFloat(&gv, dval);
+          }
+          
+          /* Push floating-point value onto stack */
+          if (status) {
+            if (!istate_push(ps, &gv, perr)) {
+              status = 0;
+              *pline = snparser_count(pp);
+            }
+          }
+        
+        } else if (ival == 0) {
+          /* Integer literal -- parse integer value */
+          if (!parseInt(ent.pKey, &i32val)) {
+            status = 0;
+            *perr = GENMAP_ERR_NUMERIC;
+            *pline = snparser_count(pp);
+          }
+          
+          /* Write integer value into local structure */
+          if (status) {
+            genvar_setInt(&gv, i32val);
+          }
+          
+          /* Push integer onto stack */
+          if (status) {
+            if (!istate_push(ps, &gv, perr)) {
+              status = 0;
+              *pline = snparser_count(pp);
+            }
+          }
+        
+        } else {
+          /* Can't parse valid numeric literal */
+          status = 0;
+          *perr = GENMAP_ERR_NUMERIC;
+          *pline = snparser_count(pp);
+        }
+      
+      } else if (ent.status == SNENTITY_VARIABLE) {
+        /* Variable declaration -- should be at least one element
+         * visible on stack */
+        if (istate_height(ps) < 1) {
+          status = 0;
+          *perr = GENMAP_ERR_UNDERFLW;
+          *pline = snparser_count(pp);
+        }
+        
+        /* Pop the element off the stack into local structure */
+        if (status) {
+          if (!istate_index(ps, 0, &gv, perr)) {
+            abort();  /* shouldn't happen */
+          }
+          if (!istate_pop(ps, 1, perr)) {
+            abort();  /* shouldn't happen */
+          }
+        }
+        
+        /* Define variable */
+        if (status) {
+          if (!istate_define(ps, ent.pKey, 0, &gv, perr)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        }
+        
+      } else if (ent.status == SNENTITY_CONSTANT) {
+        /* Constant declaration -- should be at least one element 
+         * visible on stack */
+        if (istate_height(ps) < 1) {
+          status = 0;
+          *perr = GENMAP_ERR_UNDERFLW;
+          *pline = snparser_count(pp);
+        }
+        
+        /* Pop the element off the stack into local structure */
+        if (status) {
+          if (!istate_index(ps, 0, &gv, perr)) {
+            abort();  /* shouldn't happen */
+          }
+          if (!istate_pop(ps, 1, perr)) {
+            abort();  /* shouldn't happen */
+          }
+        }
+        
+        /* Define constant */
+        if (status) {
+          if (!istate_define(ps, ent.pKey, 1, &gv, perr)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        }
+      
+      } else if (ent.status == SNENTITY_ASSIGN) {
+        /* Set variable -- should be at least one element visible on
+         * stack */
+        if (istate_height(ps) < 1) {
+          status = 0;
+          *perr = GENMAP_ERR_UNDERFLW;
+          *pline = snparser_count(pp);
+        }
+        
+        /* Pop the element off the stack into local structure */
+        if (status) {
+          if (!istate_index(ps, 0, &gv, perr)) {
+            abort();  /* shouldn't happen */
+          }
+          if (!istate_pop(ps, 1, perr)) {
+            abort();  /* shouldn't happen */
+          }
+        }
+        
+        /* Set variable value */
+        if (status) {
+          if (!istate_set(ps, ent.pKey, &gv, perr)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        }
+        
+      } else if (ent.status == SNENTITY_GET) {
+        /* Get variable or constant -- get value into local structure */
+        if (!istate_get(ps, ent.pKey, &gv, perr)) {
+          status = 0;
+          *pline = snparser_count(pp);
+        }
+        
+        /* Push the variable or constant value onto stack */
+        if (status) {
+          if (!istate_push(ps, &gv, perr)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        }
+        
+      } else if (ent.status == SNENTITY_BEGIN_GROUP) {
+        /* Begin group */
+        if (!istate_begin(ps, perr)) {
+          status = 0;
+          *pline = snparser_count(pp);
+        }
+        
+      } else if (ent.status == SNENTITY_END_GROUP) {
+        /* End group */
+        if (!istate_end(ps, perr)) {
+          status = 0;
+          *pline = snparser_count(pp);
+        }
+        
+      } else if (ent.status == SNENTITY_ARRAY) {
+        /* Array -- check whether in integer bounds */
+        if ((ent.count < INT32_MIN) || (ent.count > INT32_MAX)) {
+          status = 0;
+          *perr = GENMAP_ERR_HUGEARR;
+          *pline = snparser_count(pp);
+        }
+        
+        /* Write integer value into local structure */
+        if (status) {
+          genvar_setInt(&gv, (int32_t) ent.count);
+        }
+        
+        /* Push integer value onto stack */
+        if (status) {
+          if (!istate_push(ps, &gv, perr)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        }
+      
+      } else if (ent.status == SNENTITY_OPERATION) {
+        /* Dispatch to appropriate handler */
+        if (strcmp(ent.pKey, "adsr") == 0) {
+          if (!op_adsr(ps, perr, samp_rate)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+          
+        } else if (strcmp(ent.pKey, "operator") == 0) {
+          if (!op_operator(ps, perr, samp_rate)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+          
+        } else if (strcmp(ent.pKey, "additive") == 0) {
+          if (!op_additive(ps, perr, samp_rate)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+          
+        } else {
+          /* Unrecognized operation */
+          status = 0;
+          *perr = GENMAP_ERR_BADOP;
+          *pline = snparser_count(pp);
+        }
+      
+      } else {
+        /* Unsupported Shastina entity type */
+        status = 0;
+        *perr = GENMAP_ERR_ENTTYPE;
+        *pline = snparser_count(pp);
+      }
+      
+      /* Leave loop if error */
+      if (!status) {
+        break;
+      }
+    }
+    
+    /* Check for parsing error */
+    if (status && (ent.status < 0)) {
+      status = 0;
+      *perr = ent.status;
+      *pline = snparser_count(pp);
+    }
+  }
+  
+  /* Free parser if allocated */
+  snparser_free(pp);
+  pp = NULL;
+  
+  /* Clear genvar structure */
+  genvar_clear(&gv);
+  
+  /* Return status */
+  return status;
 }
 
 /*
@@ -2197,7 +3716,7 @@ void genmap_run(
       pResult->linenum = 0;
     }
   }
-  
+
   /* Interpret the whole script */
   if (status) {
     if (!interpret(
@@ -2209,7 +3728,7 @@ void genmap_run(
       status = 0;
     }
   }
-  
+
   /* There shouldn't be any open groups in interpreter state */
   if (status && istate_grouped(ps)) {
     status = 0;
@@ -2233,13 +3752,13 @@ void genmap_run(
       abort();
     }
   }
-  
+
   /* We can now release interpreter state */
   if (status) {
     istate_free(ps);
     ps = NULL;
   }
-  
+
   /* Make sure we have a generator object type */
   if (status && (genvar_type(&gv) != GENVAR_GENOBJ)) {
     status = 0;
@@ -2252,6 +3771,7 @@ void genmap_run(
     pResult->errcode = GENMAP_OK;
     pResult->linenum = 0;
     pResult->pRoot = genvar_getGen(&gv);
+    generator_addref(pResult->pRoot);
     pResult->icount = generator_bind(pResult->pRoot, 0);
   }
   
@@ -2259,7 +3779,7 @@ void genmap_run(
   if ((pResult->linenum == LONG_MAX) || (pResult->linenum < 0)) {
     pResult->linenum = 0;
   }
-  
+
   /* Free name chain if allocated */
   free_names(pNames);
   pNames = NULL;
@@ -2271,7 +3791,7 @@ void genmap_run(
   /* Release interpreter state if allocated */
   istate_free(ps);
   ps = NULL;
-  
+
   /* Clear genvar structure */
   genvar_clear(&gv);
 }
@@ -2338,6 +3858,50 @@ const char *genmap_errstr(int code) {
       
       case GENMAP_ERR_RESULTYP:
         pResult = "Wrong type of object remains on stack at end";
+        break;
+      
+      case GENMAP_ERR_NOSIG:
+        pResult = "Can't read valid generator map signature";
+        break;
+      
+      case GENMAP_ERR_BADSIG:
+        pResult = "Unrecognized generator map signature";
+        break;
+      
+      case GENMAP_ERR_ENTTYPE:
+        pResult = "Unsupported Shastina entity type";
+        break;
+      
+      case GENMAP_ERR_HUGEARR:
+        pResult = "Array has too many elements";
+        break;
+      
+      case GENMAP_ERR_ATOM:
+        pResult = "Unrecognized atom";
+        break;
+      
+      case GENMAP_ERR_NUMERIC:
+        pResult = "Can't parse numeric literal";
+        break;
+      
+      case GENMAP_ERR_BADOP:
+        pResult = "Unrecognized Shastina operation";
+        break;
+      
+      case GENMAP_ERR_PARAMTYP:
+        pResult = "Wrong parameter type provided to operation";
+        break;
+      
+      case GENMAP_ERR_RANGE:
+        pResult = "Parameter out of range";
+        break;
+      
+      case GENMAP_ERR_OPREDEF:
+        pResult = "operator parameter was redefined";
+        break;
+      
+      case GENMAP_ERR_OPMISS:
+        pResult = "Missing required operator parameter";
         break;
       
       default:
