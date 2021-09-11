@@ -47,6 +47,19 @@
 #
 # 25 -32 125.0 -52.3 1.25e-3
 
+# The following arithmetic operators are available that take two
+# parameters, with the top of the stack being the second parameter and
+# the value under that being the first parameter, and then pushes the
+# result back onto the stack:
+#
+#   add
+#   sub
+#   mul
+#   div
+#
+# All of these are floating-point operations and automatically promote
+# any integers to floats.
+
 # Atoms are special unique integer constant values.  Atoms can NOT be
 # created using integer literals.  Instead, you must use special
 # case-sensitive string literals surrounded by double-quotes that have
