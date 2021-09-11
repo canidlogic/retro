@@ -173,6 +173,32 @@ void generator_opdata_init(
 GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
 
 /*
+ * Construct a scaling generator, which multiplies the generated samples
+ * of an underlying generator by a constant amount.
+ * 
+ * The scaling value may be any finite value.
+ * 
+ * The reference count of the underlying generator is incremented.  The
+ * reference count of the constructed generator object starts out at
+ * one.
+ * 
+ * Scaling generators do not have any "instance data."  All of their
+ * data is "class data" that is shared across all instances of the
+ * generator map.
+ * 
+ * Parameters:
+ * 
+ *   pBase - pointer to the underlying generator
+ * 
+ *   scale - the value to multiply to all samples
+ * 
+ * Return:
+ * 
+ *   the newly constructed scaling generator
+ */
+GENERATOR *generator_scale(GENERATOR *pBase, double scale);
+
+/*
  * Construct an operator generator.
  * 
  * fop is one of the GENERATOR_F constants, which determines the
@@ -394,6 +420,9 @@ double generator_invoke(
  * return the maximum length among the ADSR envelopes for all reached
  * operators.
  * 
+ * If the provided generator is a scaling generator, the call is passed
+ * through to the underlying generator.
+ * 
  * Parameters:
  * 
  *   pg - the generator object to invoke
@@ -415,10 +444,11 @@ int32_t generator_length(
  * Recursively bind a generator object and all generator objects that
  * can be reached from the generator object.
  * 
- * Binding an additive operator simply forwards the binding call to each
- * of the component generators.  Binding an operator assigns a unique
- * index within the instance data array and forwards the call to any
- * modulator generator objects.
+ * Binding an additive generator simply forwards the binding call to
+ * each of the component generators.  Binding a scaling generator calls
+ * through to the underlying generator.  Binding an operator assigns a
+ * unique index within the instance data array and forwards the call to
+ * any modulator generator objects.
  * 
  * start is the number of instance data structures that have been
  * assigned so far.  The top-level bind call should set this parameter
