@@ -110,7 +110,8 @@
 #   B. "adsr" must be an ADSR object reference
 #   C. "fm" must be a generator object reference or undef
 #   D. "am" must be a generator object reference or undef
-#   E. "hlimit" must be an integer
+#   E. "ny_limit" must be an integer
+#   F. "hlimit" must be an integer
 #
 # The following default values are used for operator parameters that are
 # not defined in the parameter list:
