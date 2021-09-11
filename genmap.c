@@ -16,9 +16,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* @@TODO: */
-#include <stdio.h>
-
 /*
  * Constants
  * ---------
@@ -1471,7 +1468,7 @@ static int istate_push(ISTATE *ps, const GENVAR *pv, int *perr) {
     
     /* Initialize stack elements */
     for(i = 0; i < ps->cap; i++) {
-      genvar_clear(&((ps->pStack)[i]));
+      genvar_init(&((ps->pStack)[i]));
     }
   }
   
@@ -1496,7 +1493,7 @@ static int istate_push(ISTATE *ps, const GENVAR *pv, int *perr) {
     
     /* Initialize new stack elements */
     for(i = ps->cap; i < new_cap; i++) {
-      genvar_clear(&((ps->pStack)[i]));
+      genvar_init(&((ps->pStack)[i]));
     }
     
     /* Update capacity */
