@@ -175,9 +175,6 @@ typedef struct {
    */
   double freq_mul;
   double freq_boost;
-  double base_amp;
-  double fm_scale;
-  double am_scale;
   
   /*
    * Integer parameters.
@@ -509,11 +506,9 @@ static double gen_op(
          * the sampling rate (samples per second) */
         w_adv = f / ((double) pc->samp_rate);
 
-        /* If we have a frequency modulator, add that to w_adv, properly
-         * scaled */
-        if ((pc->pFM != NULL) && (pc->fm_scale != 0.0)) {
-          w_adv = w_adv + (pc->fm_scale *
-                        generator_invoke(pc->pFM, pods, pod_count, t));
+        /* If we have a frequency modulator, add that to w_adv */
+        if (pc->pFM != NULL) {
+          w_adv = w_adv + generator_invoke(pc->pFM, pods, pod_count, t);
         }
         
         /* Advance w by w_adv */
@@ -577,16 +572,14 @@ static double gen_op(
         abort();
       }
       
-      /* Next task is to compute amplitude; begin by multiplying the
-       * base amplitude by the ADSR envelope */
-      amp = pc->base_amp * 
-              (((double) adsr_compute(pc->pAmp, t, pod->dur)) /
+      /* Next task is to compute amplitude; begin with the ADSR
+       * envelope */
+      amp = (((double) adsr_compute(pc->pAmp, t, pod->dur)) /
                 ((double) MAX_FRAC));
       
-      /* If there is amplitude modulation, add it in, properly scaled */
-      if ((pc->pAM != NULL) && (pc->am_scale != 0.0)) {
-        amp = amp + (pc->am_scale *
-                      generator_invoke(pc->pAM, pods, pod_count, t));
+      /* If there is amplitude modulation, add it in */
+      if (pc->pAM != NULL) {
+        amp = amp + generator_invoke(pc->pAM, pods, pod_count, t);
       }
       
       /* If amplitude is not finite, set to zero */
@@ -1039,12 +1032,9 @@ GENERATOR *generator_op(
     int         fop,
     double      freq_mul,
     double      freq_boost,
-    double      base_amp,
     ADSR_OBJ  * pAmp,
     GENERATOR * pFM,
     GENERATOR * pAM,
-    double      fm_scale,
-    double      am_scale,
     int32_t     samp_rate,
     int32_t     ny_limit,
     int32_t     hlimit) {
@@ -1062,16 +1052,7 @@ GENERATOR *generator_op(
   if (!isfinite(freq_boost)) {
     abort();
   }
-  if ((!isfinite(base_amp)) || (!(base_amp >= 0.0))) {
-    abort();
-  }
   if (pAmp == NULL) {
-    abort();
-  }
-  if (!isfinite(fm_scale)) {
-    abort();
-  }
-  if (!isfinite(am_scale)) {
     abort();
   }
   if ((samp_rate != RATE_CD) && (samp_rate != RATE_DVD)) {
@@ -1082,26 +1063,6 @@ GENERATOR *generator_op(
   }
   if (hlimit < 0) {
     abort();
-  }
-  
-  /* If no FM generator, set fm_scale to zero */
-  if (pFM == NULL) {
-    fm_scale = 0.0;
-  }
-  
-  /* If no AM generator, set am_scale to zero */
-  if (pAM == NULL) {
-    am_scale = 0.0;
-  }
-  
-  /* If FM scale is zero, don't need FM generator */
-  if (fm_scale == 0.0) {
-    pFM = NULL;
-  }
-  
-  /* If AM scale is zero, don't need AM generator */
-  if (am_scale == 0.0) {
-    pAM = NULL;
   }
   
   /* Allocate operator class data structure */
@@ -1115,12 +1076,9 @@ GENERATOR *generator_op(
   pc->fop = fop;
   pc->freq_mul = freq_mul;
   pc->freq_boost = freq_boost;
-  pc->base_amp = base_amp;
   pc->pAmp = pAmp;
   pc->pFM = pFM;
   pc->pAM = pAM;
-  pc->fm_scale = fm_scale;
-  pc->am_scale = am_scale;
   pc->samp_rate = samp_rate;
   pc->ny_limit = ny_limit;
   pc->hlimit = hlimit;
