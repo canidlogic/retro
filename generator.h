@@ -86,13 +86,6 @@ typedef struct {
   double current;
   
   /*
-   * The last current value, or 0.0 if none.
-   * 
-   * Used for feedback.
-   */
-  double last;
-  
-  /*
    * The current time that has been generated.
    * 
    * This is -1 if no samples have been generated yet.
@@ -208,20 +201,6 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * added, and this reference will be released when the operator
  * generator is released.
  * 
- * fm_feedback is a multiplier that determines how much of the operator
- * output will be fed back as frequency modulation.  If this is zero,
- * then there is no FM feedback.  Otherwise, it must be a finite value
- * that is multiplied to the output of this operator and then at the
- * next time unit is added to the frequency.  Negative values are
- * allowed.
- * 
- * am_feedback is a multiplier that determines how much of the operator
- * output will be fed back as amplitude modulation.  If this is zero,
- * then there is no AM feedback.  Otherwise, it must be a finite value
- * that is multiplied to the output of this operator and then at the
- * next time unit is added to the amplitude.  Negative values are
- * allowed.
- * 
  * pFM is either NULL or it points to a generator object that is used to
  * drive frequency modulation.  If provided, then a reference to the
  * FM generator is added, which will be released when this operator is
@@ -284,10 +263,6 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
  * 
  *   pAmp - the ADSR envelope to use
  * 
- *   fm_feedback - the multiplier for FM feedback, or zero
- * 
- *   am_feedback - the multiplier for AM feedback, or zero
- * 
  *   pFM - the frequency modulation generator, or NULL
  * 
  *   pAM - the amplitude modulation generator, or NULL
@@ -313,8 +288,6 @@ GENERATOR *generator_op(
     double      freq_boost,
     double      base_amp,
     ADSR_OBJ  * pAmp,
-    double      fm_feedback,
-    double      am_feedback,
     GENERATOR * pFM,
     GENERATOR * pAM,
     double      fm_scale,
