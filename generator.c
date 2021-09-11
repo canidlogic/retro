@@ -157,8 +157,6 @@ typedef struct {
   double freq_mul;
   double freq_boost;
   double base_amp;
-  double fm_feedback;
-  double am_feedback;
   double fm_scale;
   double am_scale;
   
@@ -298,10 +296,23 @@ static double f_sawtooth(
   fprintf(stderr, "TODO: f_sawtooth\n");
   abort();
 }
+
+/*
+ * The noise function.
+ * 
+ * Return:
+ * 
+ *   a random value in range [-1.0, 1.0]
+ */
 static double f_noise(void) {
-  /* @@TODO: */
-  fprintf(stderr, "TODO: f_noise\n");
-  abort();
+  
+  double result = 0.0;
+  
+  /* Generate random value in range [0.0, 2.0] */
+  result = 2.0 * (((double) rand()) / ((double) RAND_MAX));
+  
+  /* Move result to range [-1.0, 1.0] */
+  return (result - 1.0);
 }
 
 /*
@@ -432,12 +443,7 @@ static double gen_op(
          * taking the frequency (waves per second) and then dividing by
          * the sampling rate (samples per second) */
         w_adv = f / ((double) pc->samp_rate);
-        
-        /* If we have FM feedback, add that to w_adv, properly scaled */
-        if (pc->fm_feedback != 0.0) {
-          w_adv = w_adv + (pc->fm_feedback * pod->last);
-        }
-        
+
         /* If we have a frequency modulator, add that to w_adv, properly
          * scaled */
         if ((pc->pFM != NULL) && (pc->fm_scale != 0.0)) {
@@ -453,7 +459,7 @@ static double gen_op(
         if (!isfinite(pod->w)) {
           pod->w = 0.0;
         }
-        
+
         /* Drop the integer portion of w because the waves wrap */
         pod->w = modf(pod->w, &dummy);
         
@@ -468,7 +474,7 @@ static double gen_op(
           pod->w = 0.0;
         }
       }
-      
+
       /* We now need to compute the function value at w, in range
        * [-1.0, 1.0] */
       if (pc->fop == GENERATOR_F_SINE) {
@@ -512,11 +518,6 @@ static double gen_op(
               (((double) adsr_compute(pc->pAmp, t, pod->dur)) /
                 ((double) MAX_FRAC));
       
-      /* If there is amplitude feedback, add it in, properly scaled */
-      if (pc->am_feedback != 0.0) {
-        amp = amp + (pc->am_feedback * pod->last);
-      }
-      
       /* If there is amplitude modulation, add it in, properly scaled */
       if ((pc->pAM != NULL) && (pc->am_scale != 0.0)) {
         amp = amp + (pc->am_scale *
@@ -528,9 +529,8 @@ static double gen_op(
         amp = 0.0;
       }
       
-      /* Store current sample in last, and then compute current sample
-       * by multiplying normalized function value with amplitude */
-      pod->last = pod->current;
+      /* Compute current sample by multiplying normalized function value
+       * with amplitude */
       pod->current = amp * nval;
       
       /* If current sample is not finite, clear it to zero */
@@ -793,7 +793,6 @@ void generator_opdata_init(
   pod->w = 0.0;
   pod->freq = freq;
   pod->current = 0.0;
-  pod->last = 0.0;
   pod->t = -1;
   pod->dur = dur;
 }
@@ -860,8 +859,6 @@ GENERATOR *generator_op(
     double      freq_boost,
     double      base_amp,
     ADSR_OBJ  * pAmp,
-    double      fm_feedback,
-    double      am_feedback,
     GENERATOR * pFM,
     GENERATOR * pAM,
     double      fm_scale,
@@ -887,12 +884,6 @@ GENERATOR *generator_op(
     abort();
   }
   if (pAmp == NULL) {
-    abort();
-  }
-  if (!isfinite(fm_feedback)) {
-    abort();
-  }
-  if (!isfinite(am_feedback)) {
     abort();
   }
   if (!isfinite(fm_scale)) {
@@ -944,8 +935,6 @@ GENERATOR *generator_op(
   pc->freq_boost = freq_boost;
   pc->base_amp = base_amp;
   pc->pAmp = pAmp;
-  pc->fm_feedback = fm_feedback;
-  pc->am_feedback = am_feedback;
   pc->pFM = pFM;
   pc->pAM = pAM;
   pc->fm_scale = fm_scale;
