@@ -706,7 +706,7 @@ static int32_t bind_op(void *pClass, int32_t start) {
 static void free_additive(void *pCustom) {
   
   GENERATOR **ppg = NULL;
-  
+
   /* Check parameter */
   if (pCustom == NULL) {
     abort();
@@ -723,7 +723,7 @@ static void free_additive(void *pCustom) {
   }
   
   /* Now we can free the array memory */
-  free(ppg);
+  free(pCustom);
 }
 
 /*
@@ -739,7 +739,7 @@ static void free_op(void *pCustom) {
   if (pCustom == NULL) {
     abort();
   }
-  
+
   /* Cast the class data to the appropriate structure pointer */
   pc = (OP_CLASS *) pCustom;
   
