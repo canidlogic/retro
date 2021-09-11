@@ -66,18 +66,15 @@
 #define ATOM_ADSR         (2)
 #define ATOM_FREQ_MUL     (3)
 #define ATOM_FREQ_BOOST   (4)
-#define ATOM_BASE_AMP     (5)
-#define ATOM_FM           (6)
-#define ATOM_AM           (7)
-#define ATOM_FM_SCALE     (8)
-#define ATOM_AM_SCALE     (9)
-#define ATOM_NY_LIMIT     (10)
-#define ATOM_HLIMIT       (11)
-#define ATOM_SINE         (12)
-#define ATOM_SQUARE       (13)
-#define ATOM_TRIANGLE     (14)
-#define ATOM_SAWTOOTH     (15)
-#define ATOM_NOISE        (16)
+#define ATOM_FM           (5)
+#define ATOM_AM           (6)
+#define ATOM_NY_LIMIT     (7)
+#define ATOM_HLIMIT       (8)
+#define ATOM_SINE         (9)
+#define ATOM_SQUARE       (10)
+#define ATOM_TRIANGLE     (11)
+#define ATOM_SAWTOOTH     (12)
+#define ATOM_NOISE        (13)
 
 /*
  * Type declarations
@@ -2126,20 +2123,11 @@ static int atom_map(const char *pName) {
   } else if (strcmp(pName, "freq_boost") == 0) {
     result = ATOM_FREQ_BOOST;
   
-  } else if (strcmp(pName, "base_amp") == 0) {
-    result = ATOM_BASE_AMP;
-  
   } else if (strcmp(pName, "fm") == 0) {
     result = ATOM_FM;
   
   } else if (strcmp(pName, "am") == 0) {
     result = ATOM_AM;
-  
-  } else if (strcmp(pName, "fm_scale") == 0) {
-    result = ATOM_FM_SCALE;
-    
-  } else if (strcmp(pName, "am_scale") == 0) {
-    result = ATOM_AM_SCALE;
   
   } else if (strcmp(pName, "ny_limit") == 0) {
     result = ATOM_NY_LIMIT;
@@ -2546,11 +2534,8 @@ static int op_operator(
   int def_adsr = 0;
   int def_freq_mul = 0;
   int def_freq_boost = 0;
-  int def_base_amp = 0;
   int def_fm = 0;
   int def_am = 0;
-  int def_fm_scale = 0;
-  int def_am_scale = 0;
   int def_ny_limit = 0;
   int def_hlimit = 0;
   
@@ -2559,11 +2544,8 @@ static int op_operator(
   ADSR_OBJ *val_adsr = NULL;
   double val_freq_mul = 1.0;
   double val_freq_boost = 0.0;
-  double val_base_amp = 1.0;
   GENERATOR *val_fm = NULL;
   GENERATOR *val_am = NULL;
-  double val_fm_scale = 1.0;
-  double val_am_scale = 1.0;
   int32_t val_ny_limit = 20000;
   int32_t val_hlimit = 20;
   
@@ -2768,32 +2750,6 @@ static int op_operator(
             
             break;
           
-          case ATOM_BASE_AMP:
-            /* Check whether already defined */
-            if (def_base_amp) {
-              status = 0;
-              *perr = GENMAP_ERR_OPREDEF;
-            } else {
-              def_base_amp = 1;
-            }
-            
-            /* Check type of value */
-            if (status && (!genvar_canfloat(&gv))) {
-              status = 0;
-              *perr = GENMAP_ERR_PARAMTYP;
-            }
-            
-            /* Write appropriate value */
-            if (status) {
-              val_base_amp = genvar_getFloat(&gv);
-              if (!(val_base_amp >= 0.0)) {
-                status = 0;
-                *perr = GENMAP_ERR_RANGE;
-              }
-            }
-            
-            break;
-          
           case ATOM_FM:
             /* Check whether already defined */
             if (def_fm) {
@@ -2844,50 +2800,6 @@ static int op_operator(
             } else if (status) {
               /* Set a NULL pointer */
               val_am = NULL;
-            }
-            
-            break;
-          
-          case ATOM_FM_SCALE:
-            /* Check whether already defined */
-            if (def_fm_scale) {
-              status = 0;
-              *perr = GENMAP_ERR_OPREDEF;
-            } else {
-              def_fm_scale = 1;
-            }
-            
-            /* Check type of value */
-            if (status && (!genvar_canfloat(&gv))) {
-              status = 0;
-              *perr = GENMAP_ERR_PARAMTYP;
-            }
-            
-            /* Write appropriate value */
-            if (status) {
-              val_fm_scale = genvar_getFloat(&gv);
-            }
-            
-            break;
-          
-          case ATOM_AM_SCALE:
-            /* Check whether already defined */
-            if (def_am_scale) {
-              status = 0;
-              *perr = GENMAP_ERR_OPREDEF;
-            } else {
-              def_am_scale = 1;
-            }
-            
-            /* Check type of value */
-            if (status && (!genvar_canfloat(&gv))) {
-              status = 0;
-              *perr = GENMAP_ERR_PARAMTYP;
-            }
-            
-            /* Write appropriate value */
-            if (status) {
-              val_am_scale = genvar_getFloat(&gv);
             }
             
             break;
@@ -2977,12 +2889,9 @@ static int op_operator(
                 val_fop,
                 val_freq_mul,
                 val_freq_boost,
-                val_base_amp,
                 val_adsr,
                 val_fm,
                 val_am,
-                val_fm_scale,
-                val_am_scale,
                 samp_rate,
                 val_ny_limit,
                 val_hlimit);
