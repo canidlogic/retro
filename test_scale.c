@@ -1,6 +1,6 @@
 /*
- * scale.c
- * =======
+ * test_scale.c
+ * ============
  * 
  * Generate a full chromatic scale to test the square wave module.
  * 
@@ -11,7 +11,7 @@
  * Syntax
  * ------
  * 
- *   scale [path] [rate] [amp]
+ *   test_scale [path] [rate] [amp]
  * 
  * [path] is the path to the output WAV file to write.  If it already
  * exists, it will be overwritten.
