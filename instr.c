@@ -468,7 +468,7 @@ void instr_get(
   if (dur < 1) {
     abort();
   }
-  if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+  if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
     abort();
   }
   if ((amp < 0) || (amp > MAX_FRAC)) {
