@@ -122,27 +122,6 @@ void instr_dup(int32_t i_target, int32_t i_src);
 void instr_setMaxMin(int32_t i, int32_t i_max, int32_t i_min);
 
 /*
- * Set the ADSR envelope of an instrument register.
- * 
- * i is the instrument register to apply the changes to.  It must be in
- * range [0, INSTR_MAXCOUNT - 1].  If the given register is cleared, the
- * call is ignored.
- * 
- * pa is the new envelope for the instrument.  If the given register is
- * not cleared, then the reference count of the current envelope object
- * will be decremented, the reference count of the provided envelope
- * object will be incremented, and the provided envelope object will
- * replaced the current envelope object.
- * 
- * Parameters:
- * 
- *   i - the instrument register
- * 
- *   pa - the new ADSR envelope
- */
-void instr_setADSR(int32_t i, ADSR_OBJ *pa);
-
-/*
  * Set the stereo position of an instrument register.
  * 
  * i is the instrument register to apply the changes to.  It must be in
