@@ -33,7 +33,7 @@
  * Compilation
  * -----------
  * 
- * Compile with the wavwrite and sqwave modules.
+ * Compile with the wavwrite and sqwave and ttone modules.
  * 
  * The sqwave module may require the math library to be included with
  * -lm
@@ -97,7 +97,7 @@ static int soundbeep(
   if (pPath == NULL) {
     abort();
   }
-  if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+  if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
     abort();
   }
   if ((sec < 1) || (sec > 60)) {
@@ -330,7 +330,7 @@ int main(int argc, char *argv[]) {
   
   /* Range check numeric parameters */
   if (status) {
-    if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+    if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
       status = 0;
       fprintf(stderr, "%s: Pitch parameter out of range!\n", pModule);
     }
