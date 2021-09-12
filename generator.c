@@ -12,9 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* @@TODO: */
-#include <stdio.h>
-
 /*
  * Type declarations
  * -----------------
@@ -151,6 +148,25 @@ typedef struct {
 } SCALE_CLASS;
 
 /*
+ * Class data for clip objects.
+ */
+typedef struct {
+  
+  /*
+   * The base generator object that is modified by clipping.
+   * 
+   * Class data structure owns a reference to this object.
+   */
+  GENERATOR *pBase;
+  
+  /*
+   * The finite level greater than or equal to zero to clip.
+   */
+  double level;
+  
+} CLIP_CLASS;
+
+/*
  * Class data for operator objects.
  * 
  * All of these parameters are copied from the generator_op() function.
@@ -181,8 +197,6 @@ typedef struct {
    */
   int32_t pod_i;      /* -1 if not bound yet */
   int32_t samp_rate;
-  int32_t hlimit;
-  int32_t ny_limit;
   int fop;
   
 } OP_CLASS;
@@ -194,24 +208,6 @@ typedef struct {
 
 /* Prototypes */
 static double f_sine(double w);
-static double f_square(
-    double  w,
-    double  f,
-    int32_t r,
-    int32_t hlimit,
-    int32_t ny_limit);
-static double f_triangle(
-    double  w,
-    double  f,
-    int32_t r,
-    int32_t hlimit,
-    int32_t ny_limit);
-static double f_sawtooth(
-    double  w,
-    double  f,
-    int32_t r,
-    int32_t hlimit,
-    int32_t ny_limit);
 static double f_noise(void);
 
 static double gen_additive(
@@ -221,6 +217,12 @@ static double gen_additive(
     int32_t            pod_count);
 
 static double gen_scale(
+    void             * pClass,
+    int32_t            t,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count);
+
+static double gen_clip(
     void             * pClass,
     int32_t            t,
     GENERATOR_OPDATA * pods,
@@ -242,6 +244,11 @@ static int32_t len_scale(
     GENERATOR_OPDATA * pods,
     int32_t            pod_count);
 
+static int32_t len_clip(
+    void             * pClass,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count);
+
 static int32_t len_op(
     void             * pClass,
     GENERATOR_OPDATA * pods,
@@ -249,10 +256,12 @@ static int32_t len_op(
 
 static int32_t bind_additive(void *pClass, int32_t start);
 static int32_t bind_scale(void *pClass, int32_t start);
+static int32_t bind_clip(void *pClass, int32_t start);
 static int32_t bind_op(void *pClass, int32_t start);
 
 static void free_additive(void *pCustom);
 static void free_scale(void *pCustom);
+static void free_clip(void *pCustom);
 static void free_op(void *pCustom);
 
 /*
@@ -292,38 +301,6 @@ static double f_sine(double w) {
   
   /* Compute normalized sine */
   return sin(w * 2.0 * M_PI);
-}
-
-/* @@TODO: */
-static double f_square(
-    double  w,
-    double  f,
-    int32_t r,
-    int32_t hlimit,
-    int32_t ny_limit) {
-  /* @@TODO: */
-  fprintf(stderr, "TODO: f_square\n");
-  abort();
-}
-static double f_triangle(
-    double  w,
-    double  f,
-    int32_t r,
-    int32_t hlimit,
-    int32_t ny_limit) {
-  /* @@TODO: */
-  fprintf(stderr, "TODO: f_triangle\n");
-  abort();
-}
-static double f_sawtooth(
-    double  w,
-    double  f,
-    int32_t r,
-    int32_t hlimit,
-    int32_t ny_limit) {
-  /* @@TODO: */
-  fprintf(stderr, "TODO: f_sawtooth\n");
-  abort();
 }
 
 /*
@@ -427,6 +404,48 @@ static double gen_scale(
 }
 
 /*
+ * Clip generator function.
+ * 
+ * Matches the interface of fp_gen.
+ */
+static double gen_clip(
+    void             * pClass,
+    int32_t            t,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count) {
+  
+  CLIP_CLASS *pc = NULL;
+  double result = 0.0;
+  
+  /* Check parameters */
+  if ((pClass == NULL) || (t < 0) ||
+      (pods == NULL) || (pod_count < 1)) {
+    abort();
+  }
+  
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (CLIP_CLASS *) pClass;
+  
+  /* Call through to underlying generator to get sample */
+  result = generator_invoke(pc->pBase, pods, pod_count, t);
+  
+  /* Only do clip if finite */
+  if (isfinite(result)) {
+  
+    /* Clip if necessary */
+    if (result > pc->level) {
+      result = pc->level;
+      
+    } else if (result < -(pc->level)) {
+      result = -(pc->level);
+    }
+  }
+  
+  /* Return clipped result */
+  return result;
+}
+
+/*
  * Operator generator function.
  * 
  * Matches the interface of fp_gen.
@@ -493,10 +512,11 @@ static double gen_op(
     }
     
     /* Only proceed if we have a NOISE function, OR a finite frequency
-     * that is greater than zero and less than the frequency limit for
-     * this operator; else, disable the operator and result is zero */
+     * that is greater than zero and less than half the sampling rate;
+     * else, disable the operator and result is zero */
     if ((pc->fop == GENERATOR_F_NOISE) || 
-        (isfinite(f) && (f > 0.0) && (f < ((double) pc->ny_limit)))) {
+        (isfinite(f) && (f > 0.0) &&
+          (f < ((double) pc->samp_rate) / 2.0))) {
       
       /* If we don't have the NOISE function, we need to update w
        * according to the frequency we just computed */
@@ -539,30 +559,6 @@ static double gen_op(
        * [-1.0, 1.0] */
       if (pc->fop == GENERATOR_F_SINE) {
         nval = f_sine(pod->w);
-      
-      } else if (pc->fop == GENERATOR_F_SQUARE) {
-        nval = f_square(
-                  pod->w,
-                  f,
-                  pc->samp_rate,
-                  pc->hlimit,
-                  pc->ny_limit);
-        
-      } else if (pc->fop == GENERATOR_F_TRIANGLE) {
-        nval = f_triangle(
-                  pod->w,
-                  f,
-                  pc->samp_rate,
-                  pc->hlimit,
-                  pc->ny_limit);
-        
-      } else if (pc->fop == GENERATOR_F_SAWTOOTH) {
-        nval = f_sawtooth(
-                  pod->w,
-                  f,
-                  pc->samp_rate,
-                  pc->hlimit,
-                  pc->ny_limit);
         
       } else if (pc->fop == GENERATOR_F_NOISE) {
         nval = f_noise();
@@ -682,6 +678,31 @@ static int32_t len_scale(
 }
 
 /*
+ * Length routine for clip generators.
+ * 
+ * This matches the interface of fp_gen.
+ */
+static int32_t len_clip(
+    void             * pClass,
+    GENERATOR_OPDATA * pods,
+    int32_t            pod_count) {
+  
+  CLIP_CLASS *pc = NULL;
+  
+  /* Check parameters */
+  if ((pClass == NULL) ||
+      (pods == NULL) || (pod_count < 1)) {
+    abort();
+  }
+  
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (CLIP_CLASS *) pClass;
+  
+  /* Call through to underlying generator */
+  return generator_length(pc->pBase, pods, pod_count);
+}
+
+/*
  * Length routine for operator generators.
  * 
  * This matches the interface of fp_gen.
@@ -757,6 +778,27 @@ static int32_t bind_scale(void *pClass, int32_t start) {
   
   /* Cast the class data to the appropriate structure pointer */
   pc = (SCALE_CLASS *) pClass;
+  
+  /* Call through to underlying generator */
+  return generator_bind(pc->pBase, start);
+}
+
+/*
+ * Bind routine for clip generators.
+ * 
+ * This matches the interface of fp_bind.
+ */
+static int32_t bind_clip(void *pClass, int32_t start) {
+  
+  CLIP_CLASS *pc = NULL;
+  
+  /* Check parameters */
+  if ((pClass == NULL) || (start < 0)) {
+    abort();
+  }
+  
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (CLIP_CLASS *) pClass;
   
   /* Call through to underlying generator */
   return generator_bind(pc->pBase, start);
@@ -846,6 +888,31 @@ static void free_scale(void *pCustom) {
 
   /* Cast the class data to the appropriate structure pointer */
   pc = (SCALE_CLASS *) pCustom;
+  
+  /* Release any references stored in the class data */
+  generator_release(pc->pBase);
+  pc->pBase = NULL;
+  
+  /* Now we can free the structure */
+  free(pc);
+}
+
+/*
+ * Destructor routine for class data of clip generators.
+ * 
+ * This matches the interface of fp_free.
+ */
+static void free_clip(void *pCustom) {
+  
+  CLIP_CLASS *pc = NULL;
+  
+  /* Check parameter */
+  if (pCustom == NULL) {
+    abort();
+  }
+
+  /* Cast the class data to the appropriate structure pointer */
+  pc = (CLIP_CLASS *) pCustom;
   
   /* Release any references stored in the class data */
   generator_release(pc->pBase);
@@ -1026,6 +1093,52 @@ GENERATOR *generator_scale(GENERATOR *pBase, double scale) {
 }
 
 /*
+ * generator_clip function.
+ */
+GENERATOR *generator_clip(GENERATOR *pBase, double level) {
+  
+  CLIP_CLASS *pc = NULL;
+  GENERATOR *png = NULL;
+  
+  /* Check parameters */
+  if ((pBase == NULL) || (!isfinite(level)) || (!(level >= 0.0))) {
+    abort();
+  }
+  
+  /* Add reference to base generator */
+  generator_addref(pBase);
+  
+  /* Allocate clip class data structure */
+  pc = (CLIP_CLASS *) malloc(sizeof(CLIP_CLASS));
+  if (pc == NULL) {
+    abort();
+  }
+  memset(pc, 0, sizeof(CLIP_CLASS));
+  
+  /* Initialize class data */
+  pc->pBase = pBase;
+  pc->level = level;
+  
+  /* Allocate a generator structure */
+  png = (GENERATOR *) malloc(sizeof(GENERATOR));
+  if (png == NULL) {
+    abort();
+  }
+  memset(png, 0, sizeof(GENERATOR));
+  
+  /* Initialize the generator structure */
+  png->pClass = (void *) pc;
+  png->fGen = &gen_clip;
+  png->fLen = &len_clip;
+  png->fBind = &bind_clip;
+  png->fFree = &free_clip;
+  png->refcount = 1;
+  
+  /* Return the new generator */
+  return png;
+}
+
+/*
  * generator_op function.
  */
 GENERATOR *generator_op(
@@ -1035,9 +1148,7 @@ GENERATOR *generator_op(
     ADSR_OBJ  * pAmp,
     GENERATOR * pFM,
     GENERATOR * pAM,
-    int32_t     samp_rate,
-    int32_t     ny_limit,
-    int32_t     hlimit) {
+    int32_t     samp_rate) {
   
   OP_CLASS *pc = NULL;
   GENERATOR *png = NULL;
@@ -1058,12 +1169,6 @@ GENERATOR *generator_op(
   if ((samp_rate != RATE_CD) && (samp_rate != RATE_DVD)) {
     abort();
   }
-  if ((ny_limit < 0) || (ny_limit > samp_rate)) {
-    abort();
-  }
-  if (hlimit < 0) {
-    abort();
-  }
   
   /* Allocate operator class data structure */
   pc = (OP_CLASS *) malloc(sizeof(OP_CLASS));
@@ -1080,8 +1185,6 @@ GENERATOR *generator_op(
   pc->pFM = pFM;
   pc->pAM = pAM;
   pc->samp_rate = samp_rate;
-  pc->ny_limit = ny_limit;
-  pc->hlimit = hlimit;
   
   /* Set to unbound state */
   pc->pod_i = -1;
