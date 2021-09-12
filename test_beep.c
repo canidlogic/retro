@@ -1,13 +1,13 @@
 /*
- * beep.c
- * ======
+ * test_beep.c
+ * ===========
  * 
  * Generate a square wave sound file using the Retro synthesizer.
  * 
  * Syntax
  * ------
  * 
- *   beep [path] [pitch] [sec] [rate] [amp]
+ *   test_beep [path] [pitch] [sec] [rate] [amp]
  * 
  * [path] is the path to the output WAV file to write.  If it already
  * exists, it will be overwritten.

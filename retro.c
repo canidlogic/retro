@@ -36,7 +36,7 @@
  *   stereo
  *   wavwrite
  * 
- * Also, compile with Shastina.
+ * Also, compile with libshastina beta 0.9.3 or compatible.
  * 
  * Finally, the math library may need to be included with -lm
  */
@@ -355,7 +355,11 @@ static void header_config(
     int32_t frame_after);
 
 static int parseInt(const char *pstr, int32_t *pv);
-static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln);
+static int retro(
+          SNSOURCE * pIn,
+    const char     * pOutPath,
+          int      * per,
+          long     * pln);
 static const char *error_string(int code);
 
 /*
@@ -1915,8 +1919,8 @@ static int parseInt(const char *pstr, int32_t *pv) {
  * Undefined behavior occurs if this function is called more than once
  * during a process.
  * 
- * pIn is the Shastina file to read to program the synthesizer.  It must
- * be open for reading.  Reading is fully sequential.
+ * pIn is the Shastina source to read to program the synthesizer.  The
+ * source does not need to support multiplass.
  * 
  * pOutPath is the path to the output WAV file to create.  If a WAV file
  * already exists at that location, it will be overwritten.
@@ -1932,7 +1936,7 @@ static int parseInt(const char *pstr, int32_t *pv) {
  * 
  * Parameters:
  * 
- *   pIn - the input Shastina file to program the synthesizer
+ *   pIn - the input Shastina source to program the synthesizer
  * 
  *   pOutPath - the output WAV file path
  * 
@@ -1944,7 +1948,11 @@ static int parseInt(const char *pstr, int32_t *pv) {
  * 
  *   non-zero if successful, zero if error
  */
-static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
+static int retro(
+          SNSOURCE * pIn,
+    const char     * pOutPath,
+          int      * per,
+          long     * pln) {
   
   int status = 1;
   int dummy = 0;
@@ -2324,6 +2332,11 @@ static int retro(FILE *pIn, const char *pOutPath, int *per, long *pln) {
         abort();
       }
     }
+    
+    /* Leave loop if error */
+    if (!status) {
+      break;
+    }
   }
   
   /* If we left loop on account of a Shastina error, record it */
@@ -2385,242 +2398,159 @@ static const char *error_string(int code) {
   
   const char *pResult = NULL;
   
-  switch (code) {
-    
-    case ERR_OK:
-      pResult = "No error";
-      break;
-    
-    case ERR_ENTITY:
-      pResult = "Unsupported Shastina entity type";
-      break;
-    
-    case ERR_METAMID:
-      pResult = "Metacommand after header";
-      break;
-    
-    case ERR_NORATE:
-      pResult = "Sampling rate not defined in header";
-      break;
-    
-    case ERR_NOAMP:
-      pResult = "Output amplitude not defined in header";
-      break;
+  if ((code >= ERR_SN_MIN) && (code <= ERR_SN_MAX)) {
+    pResult = snerror_str(code - ERR_SN_MAX);
+  } else {
+  
+    switch (code) {
       
-    case ERR_NOSIG:
-      pResult = "Missing file type signature on input";
-      break;
-    
-    case ERR_BADMETA:
-      pResult = "Metacommand not recognized";
-      break;
-    
-    case ERR_MPARAMC:
-      pResult = "Too many metacommand parameters";
-      break;
-    
-    case ERR_METAINT:
-      pResult = "Can't parse metacommand parameter as integer";
-      break;
-    
-    case ERR_METAPRM:
-      pResult = "Wrong number of parameters for metacommand";
-      break;
-    
-    case ERR_EMPTYMT:
-      pResult = "Empty metacommand";
-      break;
-    
-    case ERR_METAMUL:
-      pResult = "Metacommand used multiple times";
-      break;
-    
-    case ERR_BADRATE:
-      pResult = "Invalid sampling rate";
-      break;
+      case ERR_OK:
+        pResult = "No error";
+        break;
       
-    case ERR_BADAMP:
-      pResult = "Invalid output amplitude";
-      break;
-    
-    case ERR_BADFRM:
-      pResult = "Invalid frame definition";
-      break;
-    
-    case ERR_EMPTY:
-      pResult = "Nothing in file after header";
-      break;
-    
-    case ERR_NUM:
-      pResult = "Can't parse numeric entity";
-      break;
-    
-    case ERR_OVERFLW:
-      pResult = "Stack overflow";
-      break;
-    
-    case ERR_GROUP:
-      pResult = "Group closed improperly";
-      break;
+      case ERR_ENTITY:
+        pResult = "Unsupported Shastina entity type";
+        break;
       
-    case ERR_BADOP:
-      pResult = "Unrecognized operation";
-      break;
-    
-    case ERR_OPPARAM:
-      pResult = "Operation doesn't have enough parameters";
-      break;
-    
-    case ERR_PARAMT:
-      pResult = "Wrong parameter type for operation";
-      break;
-    
-    case ERR_LAYERC:
-      pResult = "Invalid parameter count for layer op";
-      break;
-    
-    case ERR_BADT:
-      pResult = "t parameter value is negative";
-      break;
-    
-    case ERR_BADFRAC:
-      pResult = "Fraction parameter value out of range";
-      break;
-    
-    case ERR_REMAIN:
-      pResult = "Elements remaining on stack at end";
-      break;
-    
-    case ERR_BADDUR:
-      pResult = "Duration is less than one";
-      break;
-    
-    case ERR_LONGDUR:
-      pResult = "Duration is too long";
-      break;
-    
-    case ERR_PITCH:
-      pResult = "Pitch out of range";
-      break;
-    
-    case ERR_INSTR:
-      pResult = "Instrument index out of range";
-      break;
-    
-    case ERR_LAYER:
-      pResult = "Layer index out of range";
-      break;
-    
-    case ERR_NOTES:
-      pResult = "Too many notes";
-      break;
-    
-    case ERR_PITCHR:
-      pResult = "Invalid pitch range";
-      break;
-    
-    case ERR_IRANGE:
-      pResult = "Invalid intensity range";
-      break;
-    
-    case ERR_GRAPH:
-      pResult = "Invalid graph";
-      break;
-    
-    case ERR_OUTFILE:
-      pResult = "Can't open output file";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_IOERR):
-      pResult = "I/O error";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_EOF):
-      pResult = "Unexpected end of file";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_BADSIG):
-      pResult = "Unrecognized file signature";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_OPENSTR):
-      pResult = "File ends in middle of string";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_LONGSTR):
-      pResult = "String is too long";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_NULLCHR):
-      pResult = "Nul character encountered in string";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_DEEPCURLY):
-      pResult = "Too much curly nesting in string";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_BADCHAR):
-      pResult = "Illegal character encountered";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_LONGTOKEN):
-      pResult = "Token is too long";
-      break;
+      case ERR_METAMID:
+        pResult = "Metacommand after header";
+        break;
       
-    case (ERR_SN_MAX+SNERR_TRAILER):
-      pResult = "Content present after |; token";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_DEEPARRAY):
-      pResult = "Too much array nesting";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_METANEST):
-      pResult = "Nested metacommands";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_SEMICOLON):
-      pResult = "Semicolon used outside of metacommand";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_DEEPGROUP):
-      pResult = "Too much group nesting";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_RPAREN):
-      pResult = "Right parenthesis outside of group";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_RSQR):
-      pResult = "Right square bracket outside array";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_OPENGROUP):
-      pResult = "Open group";
-      break;
-
-    case (ERR_SN_MAX+SNERR_LONGARRAY):
-      pResult = "Array has too many elements";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_METAEMBED):
-      pResult = "Embedded data in metacommand";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_OPENMETA):
-      pResult = "Unclosed metacommand";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_OPENARRAY):
-      pResult = "Unclosed array";
-      break;
-    
-    case (ERR_SN_MAX+SNERR_COMMA):
-      pResult = "Comma used outside of array or meta";
-      break;
-    
-    default:
-      pResult = "Unknown error";
+      case ERR_NORATE:
+        pResult = "Sampling rate not defined in header";
+        break;
+      
+      case ERR_NOAMP:
+        pResult = "Output amplitude not defined in header";
+        break;
+        
+      case ERR_NOSIG:
+        pResult = "Missing file type signature on input";
+        break;
+      
+      case ERR_BADMETA:
+        pResult = "Metacommand not recognized";
+        break;
+      
+      case ERR_MPARAMC:
+        pResult = "Too many metacommand parameters";
+        break;
+      
+      case ERR_METAINT:
+        pResult = "Can't parse metacommand parameter as integer";
+        break;
+      
+      case ERR_METAPRM:
+        pResult = "Wrong number of parameters for metacommand";
+        break;
+      
+      case ERR_EMPTYMT:
+        pResult = "Empty metacommand";
+        break;
+      
+      case ERR_METAMUL:
+        pResult = "Metacommand used multiple times";
+        break;
+      
+      case ERR_BADRATE:
+        pResult = "Invalid sampling rate";
+        break;
+        
+      case ERR_BADAMP:
+        pResult = "Invalid output amplitude";
+        break;
+      
+      case ERR_BADFRM:
+        pResult = "Invalid frame definition";
+        break;
+      
+      case ERR_EMPTY:
+        pResult = "Nothing in file after header";
+        break;
+      
+      case ERR_NUM:
+        pResult = "Can't parse numeric entity";
+        break;
+      
+      case ERR_OVERFLW:
+        pResult = "Stack overflow";
+        break;
+      
+      case ERR_GROUP:
+        pResult = "Group closed improperly";
+        break;
+        
+      case ERR_BADOP:
+        pResult = "Unrecognized operation";
+        break;
+      
+      case ERR_OPPARAM:
+        pResult = "Operation doesn't have enough parameters";
+        break;
+      
+      case ERR_PARAMT:
+        pResult = "Wrong parameter type for operation";
+        break;
+      
+      case ERR_LAYERC:
+        pResult = "Invalid parameter count for layer op";
+        break;
+      
+      case ERR_BADT:
+        pResult = "t parameter value is negative";
+        break;
+      
+      case ERR_BADFRAC:
+        pResult = "Fraction parameter value out of range";
+        break;
+      
+      case ERR_REMAIN:
+        pResult = "Elements remaining on stack at end";
+        break;
+      
+      case ERR_BADDUR:
+        pResult = "Duration is less than one";
+        break;
+      
+      case ERR_LONGDUR:
+        pResult = "Duration is too long";
+        break;
+      
+      case ERR_PITCH:
+        pResult = "Pitch out of range";
+        break;
+      
+      case ERR_INSTR:
+        pResult = "Instrument index out of range";
+        break;
+      
+      case ERR_LAYER:
+        pResult = "Layer index out of range";
+        break;
+      
+      case ERR_NOTES:
+        pResult = "Too many notes";
+        break;
+      
+      case ERR_PITCHR:
+        pResult = "Invalid pitch range";
+        break;
+      
+      case ERR_IRANGE:
+        pResult = "Invalid intensity range";
+        break;
+      
+      case ERR_GRAPH:
+        pResult = "Invalid graph";
+        break;
+      
+      case ERR_OUTFILE:
+        pResult = "Can't open output file";
+        break;
+      
+      default:
+        pResult = "Unknown error";
+    }
   }
   
   return pResult;
@@ -2637,6 +2567,7 @@ int main(int argc, char *argv[]) {
   int status = 1;
   int errnum = 0;
   long errline = 0;
+  SNSOURCE *pIn = NULL;
   
   /* Get module name */
   if (argc > 0) {
@@ -2671,9 +2602,14 @@ int main(int argc, char *argv[]) {
     }
   }
   
+  /* Wrap standard input in Shastina source */
+  if (status) {
+    pIn = snsource_file(stdin, 0);
+  }
+  
   /* Call through */
   if (status) {
-    if (!retro(stdin, argv[1], &errnum, &errline)) {
+    if (!retro(pIn, argv[1], &errnum, &errline)) {
       if ((errline >= 0) && (errline < LONG_MAX)) {
         /* Line number to report */
         status = 0;
@@ -2687,6 +2623,10 @@ int main(int argc, char *argv[]) {
       }
     }
   }
+  
+  /* Release source if allocated */
+  snsource_free(pIn);
+  pIn = NULL;
   
   /* Invert status and return */
   if (status) {
