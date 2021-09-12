@@ -29,7 +29,7 @@
  * Compilation
  * -----------
  * 
- * Compile with the wavwrite and sqwave modules.
+ * Compile with the wavwrite and sqwave and ttone modules.
  * 
  * The sqwave module may require the math library to be included with
  * -lm
@@ -38,6 +38,7 @@
 #include "sqwave.h"
 #include "wavwrite.h"
 #include "retrodef.h"
+#include "ttone.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -121,7 +122,7 @@ static int fullscale(const char *pPath, int32_t rate, int32_t amp) {
     plen = rate / 3;
     
     /* Write each of the pitches */
-    for(p = SQWAVE_PITCH_MIN; p <= SQWAVE_PITCH_MAX; p++) {
+    for(p = PITCH_MIN; p <= PITCH_MAX; p++) {
       
       /* Write the current pitch */
       for(i = 0; i < plen; i++) {
