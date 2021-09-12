@@ -105,6 +105,7 @@ static int soundbeep2(
   int wavflags = 0;
   int32_t sqrate = 0;
   ADSR_OBJ *pa = NULL;
+  void *pod = NULL;
   STEREO_POS sp;
   STEREO_SAMP ssa;
   
@@ -167,10 +168,14 @@ static int soundbeep2(
   /* Write a tone */
   if (status) {
     dur = rate * sec;
-    sfull = instr_length(0, dur);
+    pod = instr_prepare(0, dur, pitch);
+    sfull = instr_length(0, dur, pod);
     for(scount = 0; scount < sfull; scount++) {
-      instr_get(0, scount, dur, pitch, MAX_FRAC, &ssa);
+      instr_get(0, scount, dur, pitch, MAX_FRAC, &ssa, pod);
       wavwrite_sample(ssa.left, ssa.right);
+    }
+    if (pod != NULL) {
+      free(pod);
     }
   }
   
