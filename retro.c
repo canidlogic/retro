@@ -27,6 +27,7 @@
  * Compile with the following Retro modules:
  * 
  *   adsr
+ *   generator
  *   graph
  *   instr
  *   layer
