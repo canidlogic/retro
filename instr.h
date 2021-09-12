@@ -36,7 +36,10 @@
 void instr_clear(int32_t i);
 
 /*
- * Define an instrument in register i.
+ * Define a square wave instrument in register i.
+ * 
+ * The name of this function is a misnomer for reasons of backwards
+ * compatibility.  It is only able to define square wave instruments.
  * 
  * i must be in range [0, INSTR_MAXCOUNT - 1].  instr_clear() is run
  * automatically on the indicated register before the new instrument is
@@ -48,9 +51,9 @@ void instr_clear(int32_t i);
  * instrument will have constant intensity.  If both values are zero,
  * then this call is equivalent to instr_clear().
  * 
- * pa is the ADSR envelope to use for the instrument.  A reference will
- * be added to the ADSR envelope function, and the reference will be
- * released when the instrument register is cleared.
+ * pa is the ADSR envelope to use for the square wave instrument.  A
+ * reference will be added to the ADSR envelope function, and the
+ * reference will be released when the instrument register is cleared.
  * 
  * psp is the stereo position to use for the instrument.  It must be a
  * properly initialized structure.  The information is copied into the
@@ -86,9 +89,8 @@ void instr_define(
  * 
  * If the source register is not cleared and the target is a different
  * register, the target register is first cleared, and then all source
- * register parameters are copied over.  For the ADSR envelope object,
- * a reference is added to it and the source and target registers share
- * the same object.
+ * register parameters are copied over.  Copied object references have
+ * their reference count increased.
  * 
  * Parameters:
  * 
