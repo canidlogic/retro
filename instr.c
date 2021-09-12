@@ -11,6 +11,20 @@
 #include <string.h>
 
 /*
+ * Constants
+ * =========
+ */
+
+/*
+ * Instrument type constants.
+ * 
+ * The "NULL" instrument is used for instrument registers that are
+ * cleared.
+ */
+#define ITYPE_NULL      (0)
+#define ITYPE_SQUARE    (1)
+
+/*
  * Type declarations
  * =================
  */
@@ -32,21 +46,39 @@ typedef struct {
   uint16_t i_min;
   
   /*
-   * Pointer to the envelope object.
-   * 
-   * If the register is cleared, this must be NULL.  Otherwise, this
-   * must be non-NULL.
-   * 
-   * The register must have a reference to the envelope object.
-   */
-  ADSR_OBJ *pa;
-  
-  /*
    * The stereo position of this instrument.
    * 
    * This is only valid if the register is not cleared.
    */
   STEREO_POS sp;
+  
+  /*
+   * The instrument type.
+   * 
+   * One of the ITYPE_ constants.
+   */
+  int itype;
+  
+  /*
+   * The "val" union has data specific to the instance type.
+   * 
+   * The itype field determines what is stored here.
+   */
+  union {
+  
+    /*
+     * Dummy value used for NULL instruments.
+     */
+    int dummy;
+  
+    /*
+     * Pointer to the envelope object, used for SQUARE instruments.
+     * 
+     * The register must have a reference to the envelope object.
+     */
+    ADSR_OBJ *pa;
+  
+  } val;
   
 } INSTR_REG;
 
@@ -101,6 +133,8 @@ static void instr_t_init(void) {
     for(x = 0; x < INSTR_MAXCOUNT; x++) {
       (m_instr_t[x]).i_max = 0;
       (m_instr_t[x]).i_min = 0;
+      (m_instr_t[x]).itype = ITYPE_NULL;
+      (m_instr_t[x]).val.dummy = 0;
     }
     
     /* Set initialized flag */
@@ -188,9 +222,14 @@ void instr_clear(int32_t i) {
   
   /* Only proceed if instrument register not clear */
   if (!instr_isclear(pr)) {
-    /* Release the ADSR object */
-    adsr_release(pr->pa);
-    pr->pa = NULL;
+    /* Release the instrument data */
+    if (pr->itype == ITYPE_SQUARE) {
+      adsr_release((pr->val).pa);
+      (pr->val).pa = NULL;
+    } else {
+      /* Shouldn't happen */
+      abort();
+    }
     
     /* Clear the record */
     memset(pr, 0, sizeof(INSTR_REG));
@@ -198,6 +237,8 @@ void instr_clear(int32_t i) {
     /* Set the clear */
     pr->i_max = 0;
     pr->i_min = 0;
+    pr->itype = ITYPE_NULL;
+    (pr->val).dummy = 0;
   }
 }
 
@@ -239,7 +280,8 @@ void instr_define(
     /* Copy values in */
     pr->i_max = (uint16_t) i_max;
     pr->i_min = (uint16_t) i_min;
-    pr->pa = pa;
+    pr->itype = ITYPE_SQUARE;
+    (pr->val).pa = pa;
     adsr_addref(pa);
     memcpy(&(pr->sp), psp, sizeof(STEREO_POS));
   }
@@ -275,7 +317,14 @@ void instr_dup(int32_t i_target, int32_t i_src) {
       /* Source not cleared, so clear target and copy to it */
       instr_clear(i_target);
       memcpy(pt, ps, sizeof(INSTR_REG));
-      adsr_addref(pt->pa);
+      
+      /* Add any references */
+      if (pt->itype == ITYPE_SQUARE) {
+        adsr_addref((pt->val).pa);
+      } else {
+        /* Shouldn't happen */
+        abort();
+      }
     }
   }
 }
@@ -375,8 +424,13 @@ int32_t instr_length(int32_t i, int32_t dur, void *pod) {
     result = 1;
     
   } else {
-    /* Register is not cleared, so call through to envelope */
-    result = adsr_length(pr->pa, dur);
+    /* Register is not cleared, so call through */
+    if (pr->itype == ITYPE_SQUARE) {
+      result = adsr_length((pr->val).pa, dur);
+    } else {
+      /* Shouldn't happen */
+      abort();
+    }
   }
   
   /* Return result */
@@ -428,24 +482,32 @@ void instr_get(
    * generate a zero result */
   if (!instr_isclear(pr)) {
   
-    /* First of all, get the sample from the square wave generator */
-    s = sqwave_get(pitch, t);
+    /* Handle instrument types */
+    if (pr->itype == ITYPE_SQUARE) {
   
-    /* Second, compute the intensity from the amplitude and the i_max &
-     * i_min parameters */
-    intensity =
-      ((((int32_t) amp) * ((int32_t) (pr->i_max - pr->i_min))) /
-                ((int32_t) MAX_FRAC)) + ((int32_t) pr->i_min);
-  
-    /* Next, multiply the sample by the intensity */
-    s = (int16_t) ((intensity * ((int32_t) s)) / 
-            ((int32_t) MAX_FRAC));
-  
-    /* Then comes the envelope */
-    s = adsr_mul(pr->pa, t, dur, s);
-  
-    /* Finally, stereo-image the sample */
-    stereo_image(s, pitch, &(pr->sp), pss);
+      /* First of all, get the sample from the square wave generator */
+      s = sqwave_get(pitch, t);
+    
+      /* Second, compute the intensity from the amplitude and the i_max
+       * & i_min parameters */
+      intensity =
+        ((((int32_t) amp) * ((int32_t) (pr->i_max - pr->i_min))) /
+                  ((int32_t) MAX_FRAC)) + ((int32_t) pr->i_min);
+    
+      /* Next, multiply the sample by the intensity */
+      s = (int16_t) ((intensity * ((int32_t) s)) / 
+              ((int32_t) MAX_FRAC));
+    
+      /* Then comes the envelope */
+      s = adsr_mul((pr->val).pa, t, dur, s);
+    
+      /* Finally, stereo-image the sample */
+      stereo_image(s, pitch, &(pr->sp), pss);
+    
+    } else {
+      /* Shouldn't happen */
+      abort();
+    }
   
   } else {
     /* Instrument register clear */
