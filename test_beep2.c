@@ -39,6 +39,7 @@
  * Compile with the following modules:
  * 
  *   adsr
+ *   generator
  *   instr
  *   sqwave
  *   stereo
