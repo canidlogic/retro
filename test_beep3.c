@@ -1,13 +1,13 @@
 /*
- * beep3.c
- * =======
+ * test_beep3.c
+ * ============
  * 
  * Generate a sound using the Retro synthesizer FM synthesis.
  * 
  * Syntax
  * ------
  * 
- *   beep3 [path] [freq] [msec] [rate] [amp] [genmap]
+ *   test_beep3 [path] [freq] [msec] [rate] [amp] [genmap]
  * 
  * [path] is the path to the output WAV file to write.  If it already
  * exists, it will be overwritten.
@@ -175,6 +175,7 @@ static int soundbeep(
   /* Interpret script */
   if (status) {
     genmap_run(psScript, &gmr, rate);
+
     if (gmr.errcode != GENMAP_OK) {
       status = 0;
       fprintf(stderr, "%s: Script interpretation failed!\n", pModule);
@@ -223,7 +224,7 @@ static int soundbeep(
       abort();
     }
   }
-  
+
   /* Initialize WAV writer */
   if (status) {
     if (!wavwrite_init(pPath, wavflags)) {
@@ -269,7 +270,7 @@ static int soundbeep(
       sbuf_sample(s, s);
     }
   }
-  
+
   /* Write one second of silence */
   if (status) {
     for(x = 0; x < rate; x++) {
@@ -288,25 +289,25 @@ static int soundbeep(
   } else {
     wavwrite_close(WAVWRITE_CLOSE_RMFILE);
   }
-  
+
   /* Free objects */
   if (pInstance != NULL) {
     free(pInstance);
     pInstance = NULL;
   }
-  
+
   generator_release(gmr.pRoot);
   gmr.pRoot = NULL;
-  
+
   snsource_free(psScript);
   psScript = NULL;
-  
+
   /* Close files */
   if (fScript != NULL) {
     fclose(fScript);
     fScript = NULL;
   }
-  
+
   /* Return status */
   return status;
 }
