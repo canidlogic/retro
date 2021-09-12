@@ -5,10 +5,13 @@
  * instr.h
  * 
  * Instrument module of Retro synthesizer.
+ * 
+ * May need to compile with the math library -lm
  */
 
 #include "adsr.h"
 #include "retrodef.h"
+#include "generator.h"
 #include "stereo.h"
 #include "sqwave.h"
 #include "ttone.h"
