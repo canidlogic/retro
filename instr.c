@@ -337,12 +337,29 @@ void instr_setStereo(int32_t i, const STEREO_POS *psp) {
 }
 
 /*
+ * instr_prepare function.
+ */
+void *instr_prepare(int32_t i, int32_t dur, int32_t pitch) {
+  
+  /* No instrument types use instance data yet, so return NULL */
+  (void) i;
+  (void) dur;
+  (void) pitch;
+  return NULL;
+}
+
+/*
  * instr_length function.
  */
-int32_t instr_length(int32_t i, int32_t dur) {
+int32_t instr_length(int32_t i, int32_t dur, void *pod) {
   
   INSTR_REG *pr = NULL;
   int32_t result = 0;
+  
+  /* No instrument types use instance data yet */
+  if (pod != NULL) {
+    abort();
+  }
   
   /* Get pointer to instrument register */
   pr = instr_ptr(i);
@@ -375,11 +392,17 @@ void instr_get(
     int32_t       dur,
     int32_t       pitch,
     int16_t       amp,
-    STEREO_SAMP * pss) {
+    STEREO_SAMP * pss,
+    void        * pod) {
   
   INSTR_REG *pr = NULL;
   int16_t s = 0;
   int32_t intensity = 0;
+  
+  /* No instrument types use instance data yet */
+  if (pod != NULL) {
+    abort();
+  }
   
   /* Get pointer to instrument register */
   pr = instr_ptr(i);
