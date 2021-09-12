@@ -141,6 +141,46 @@ void instr_setMaxMin(int32_t i, int32_t i_max, int32_t i_min);
 void instr_setStereo(int32_t i, const STEREO_POS *psp);
 
 /*
+ * Prepare instance data for a specific instrument.
+ * 
+ * Instance data is not required for all types of instruments.  NULL is
+ * returned if the given instrument does not require instance data.
+ * 
+ * If the instrument does require instance data, then the return value
+ * is a dynamically allocated block of instance data that needs to be
+ * passed through to instr_get() and instr_length().  Undefined behavior
+ * occurs if the instance data block is used with a different
+ * instrument, or the instrument changes, or the duration and pitch in
+ * the instr_get() call or the duration in the instr_length() call do
+ * not match those that were prepared with this function.
+ * 
+ * If a non-NULL pointer is returned, then the memory block is
+ * dynamically allocated and must eventually be freed with free() after
+ * the note has been fully rendered.
+ * 
+ * dur is the duration of the event in samples.  This is not necessarily
+ * the same as the duration of the envelope from instr_length().  It
+ * must be greater than zero.
+ * 
+ * pitch is the pitch to generate.  It must be in the range
+ * [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+ * 
+ * Parameters:
+ * 
+ *   i - the instrument register
+ * 
+ *   dur - the duration of the event, in samples
+ * 
+ *   pitch - the pitch index in semitones from middle C
+ * 
+ * Return:
+ * 
+ *   a dynamically allocated instance data block for rendering this
+ *   note, or NULL if no instance data is required for this instrument
+ */
+void *instr_prepare(int32_t i, int32_t dur, int32_t pitch);
+
+/*
  * Given an event duration in samples, return the envelope duration in
  * samples.
  * 
@@ -149,6 +189,9 @@ void instr_setStereo(int32_t i, const STEREO_POS *psp);
  * always returns a value of one.
  * 
  * dur is the event duration in samples.  It must be greater than zero.
+ * 
+ * pod is a pointer to instance data that has been generated with a call
+ * to instr_prepare() for this instrument and for the given duration.
  * 
  * The return value will always be greater than zero.  It may be less
  * than, equal to, or greater than the given dur value, depending on the
@@ -160,11 +203,13 @@ void instr_setStereo(int32_t i, const STEREO_POS *psp);
  * 
  *   dur - the event duration in samples
  * 
+ *   pod - pointer to instance data
+ * 
  * Return:
  * 
  *   the envelope duration in samples
  */
-int32_t instr_length(int32_t i, int32_t dur);
+int32_t instr_length(int32_t i, int32_t dur, void *pod);
 
 /*
  * Compute an instrument sample.
@@ -195,6 +240,10 @@ int32_t instr_length(int32_t i, int32_t dur);
  * pss is the pointer to the structure to receive the computed stereo
  * sample.
  * 
+ * pod is a pointer to instance data that has been generated with a call
+ * to instr_prepare() for this instrument and for the given pitch and
+ * duration.
+ * 
  * Parameters:
  * 
  *   i - the instrument register
@@ -208,6 +257,8 @@ int32_t instr_length(int32_t i, int32_t dur);
  *   amp - the amplitude at time t
  * 
  *   pss - the structure to receive the result
+ * 
+ *   pod - pointer to instance data
  */
 void instr_get(
     int32_t       i,
@@ -215,6 +266,7 @@ void instr_get(
     int32_t       dur,
     int32_t       pitch,
     int16_t       amp,
-    STEREO_SAMP * pss);
+    STEREO_SAMP * pss,
+    void        * pod);
 
 #endif
