@@ -54,7 +54,7 @@ typedef struct {
   /*
    * The pitch in semitones from middle C.
    * 
-   * Must be in range [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+   * Must be in range [PITCH_MIN, PITCH_MAX].
    */
   int16_t pitch;
   
@@ -216,7 +216,7 @@ int seq_note(
   if (dur > INT32_MAX - t) {
     abort();
   }
-  if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+  if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
     abort();
   }
   if ((instr < 0) || (instr >= INSTR_MAXCOUNT)) {
