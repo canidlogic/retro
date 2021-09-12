@@ -34,6 +34,7 @@
  *   seq
  *   sqwave
  *   stereo
+ *   ttone
  *   wavwrite
  * 
  * Also, compile with libshastina beta 0.9.3 or compatible.
@@ -57,6 +58,7 @@
 #include "seq.h"
 #include "sqwave.h"
 #include "stereo.h"
+#include "ttone.h"
 #include "wavwrite.h"
 
 /*
@@ -1020,13 +1022,13 @@ static int op_field(
     status = 0;
     *per = ERR_BADFRAC;
   }
-  if (status && ((low_pitch < SQWAVE_PITCH_MIN) ||
-                  (low_pitch > SQWAVE_PITCH_MAX))) {
+  if (status && ((low_pitch < PITCH_MIN) ||
+                  (low_pitch > PITCH_MAX))) {
     status = 0;
     *per = ERR_PITCH;
   }
-  if (status && ((high_pitch < SQWAVE_PITCH_MIN) ||
-                  (high_pitch > SQWAVE_PITCH_MAX))) {
+  if (status && ((high_pitch < PITCH_MIN) ||
+                  (high_pitch > PITCH_MAX))) {
     status = 0;
     *per = ERR_PITCH;
   }
@@ -1146,8 +1148,8 @@ static int op_note(
     status = 0;
     *per = ERR_LONGDUR;
   }
-  if (status && ((pitch < SQWAVE_PITCH_MIN) ||
-                  (pitch > SQWAVE_PITCH_MAX))) {
+  if (status && ((pitch < PITCH_MIN) ||
+                  (pitch > PITCH_MAX))) {
     status = 0;
     *per = ERR_PITCH;
   }
