@@ -315,33 +315,6 @@ void instr_setMaxMin(int32_t i, int32_t i_max, int32_t i_min) {
 }
 
 /*
- * instr_setADSR function.
- */
-void instr_setADSR(int32_t i, ADSR_OBJ *pa) {
-  
-  INSTR_REG *pr = NULL;
-  
-  /* Get pointer to instrument register */
-  pr = instr_ptr(i);
-  
-  /* Check parameter */
-  if (pa == NULL) {
-    abort();
-  }
-  
-  /* Only proceed if register not cleared */
-  if (!instr_isclear(pr)) {
-    /* Release the current envelope */
-    adsr_release(pr->pa);
-    pr->pa = NULL;
-    
-    /* Copy in the new envelope */
-    pr->pa = pa;
-    adsr_addref(pa);
-  }
-}
-
-/*
  * instr_setStereo function.
  */
 void instr_setStereo(int32_t i, const STEREO_POS *psp) {
