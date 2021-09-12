@@ -68,13 +68,8 @@
 #define ATOM_FREQ_BOOST   (4)
 #define ATOM_FM           (5)
 #define ATOM_AM           (6)
-#define ATOM_NY_LIMIT     (7)
-#define ATOM_HLIMIT       (8)
-#define ATOM_SINE         (9)
-#define ATOM_SQUARE       (10)
-#define ATOM_TRIANGLE     (11)
-#define ATOM_SAWTOOTH     (12)
-#define ATOM_NOISE        (13)
+#define ATOM_SINE         (7)
+#define ATOM_NOISE        (8)
 
 /*
  * Arithmetic operations.
@@ -385,6 +380,11 @@ static int op_additive(
     int32_t   samp_rate);
 
 static int op_scale(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate);
+
+static int op_clip(
     ISTATE  * ps,
     int     * perr,
     int32_t   samp_rate);
@@ -2142,23 +2142,8 @@ static int atom_map(const char *pName) {
   } else if (strcmp(pName, "am") == 0) {
     result = ATOM_AM;
   
-  } else if (strcmp(pName, "ny_limit") == 0) {
-    result = ATOM_NY_LIMIT;
-  
-  } else if (strcmp(pName, "hlimit") == 0) {
-    result = ATOM_HLIMIT;
-  
   } else if (strcmp(pName, "sine") == 0) {
     result = ATOM_SINE;
-  
-  } else if (strcmp(pName, "square") == 0) {
-    result = ATOM_SQUARE;
-  
-  } else if (strcmp(pName, "triangle") == 0) {
-    result = ATOM_TRIANGLE;
-  
-  } else if (strcmp(pName, "sawtooth") == 0) {
-    result = ATOM_SAWTOOTH;
   
   } else if (strcmp(pName, "noise") == 0) {
     result = ATOM_NOISE;
@@ -2549,8 +2534,6 @@ static int op_operator(
   int def_freq_boost = 0;
   int def_fm = 0;
   int def_am = 0;
-  int def_ny_limit = 0;
-  int def_hlimit = 0;
   
   /* Default values set below */
   int val_fop = 0;
@@ -2559,8 +2542,6 @@ static int op_operator(
   double val_freq_boost = 0.0;
   GENERATOR *val_fm = NULL;
   GENERATOR *val_am = NULL;
-  int32_t val_ny_limit = 20000;
-  int32_t val_hlimit = 20;
   
   /* Initialize structures */
   genvar_init(&gv);
@@ -2665,18 +2646,6 @@ static int op_operator(
                 
                 case ATOM_SINE:
                   val_fop = GENERATOR_F_SINE;
-                  break;
-                
-                case ATOM_SQUARE:
-                  val_fop = GENERATOR_F_SQUARE;
-                  break;
-                
-                case ATOM_TRIANGLE:
-                  val_fop = GENERATOR_F_TRIANGLE;
-                  break;
-                
-                case ATOM_SAWTOOTH:
-                  val_fop = GENERATOR_F_SAWTOOTH;
                   break;
                 
                 case ATOM_NOISE:
@@ -2817,58 +2786,6 @@ static int op_operator(
             
             break;
           
-          case ATOM_NY_LIMIT:
-            /* Check whether already defined */
-            if (def_ny_limit) {
-              status = 0;
-              *perr = GENMAP_ERR_OPREDEF;
-            } else {
-              def_ny_limit = 1;
-            }
-            
-            /* Check type of value */
-            if (status && (genvar_type(&gv) != GENVAR_INT)) {
-              status = 0;
-              *perr = GENMAP_ERR_PARAMTYP;
-            }
-            
-            /* Write appropriate value */
-            if (status) {
-              val_ny_limit = genvar_getInt(&gv);
-              if ((val_ny_limit < 0) || (val_ny_limit > samp_rate)) {
-                status = 0;
-                *perr = GENMAP_ERR_RANGE;
-              }
-            }
-            
-            break;
-          
-          case ATOM_HLIMIT:
-            /* Check whether already defined */
-            if (def_hlimit) {
-              status = 0;
-              *perr = GENMAP_ERR_OPREDEF;
-            } else {
-              def_hlimit = 1;
-            }
-            
-            /* Check type of value */
-            if (status && (genvar_type(&gv) != GENVAR_INT)) {
-              status = 0;
-              *perr = GENMAP_ERR_PARAMTYP;
-            }
-            
-            /* Write appropriate value */
-            if (status) {
-              val_hlimit = genvar_getInt(&gv);
-              if (val_hlimit < 0) {
-                status = 0;
-                *perr = GENMAP_ERR_RANGE;
-              }
-            }
-            
-            break;
-          
           default:
             /* Unrecognized parameter atom */
             status = 0;
@@ -2905,9 +2822,7 @@ static int op_operator(
                 val_adsr,
                 val_fm,
                 val_am,
-                samp_rate,
-                val_ny_limit,
-                val_hlimit);
+                samp_rate);
   }
   
   /* Wrap new generator and push onto operator stack */
@@ -3173,6 +3088,105 @@ static int op_scale(
   /* Clear structures */
   genvar_clear(&v_base);
   genvar_clear(&v_scale);
+  genvar_clear(&gv);
+  
+  /* Release object references */
+  generator_release(new_gen);
+  new_gen = NULL;
+  
+  /* Return status */
+  return status;
+}
+
+/*
+ * Interpret a "clip" operation.
+ * 
+ * Parameters:
+ * 
+ *   ps - the interpreter state
+ * 
+ *   perr - variable to receive error code if failure
+ * 
+ *   samp_rate - the sampling rate
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int op_clip(
+    ISTATE  * ps,
+    int     * perr,
+    int32_t   samp_rate) {
+  
+  int status = 1;
+  GENVAR v_base;
+  GENVAR v_level;
+  GENVAR gv;
+  GENERATOR *new_gen = NULL;
+  
+  /* Initialize structures */
+  genvar_init(&v_base);
+  genvar_init(&v_level);
+  genvar_init(&gv);
+  
+  /* Check parameters */
+  if ((ps == NULL) || (perr == NULL)) {
+    abort();
+  }
+  if ((samp_rate != RATE_DVD) && (samp_rate != RATE_CD)) {
+    abort();
+  }
+  
+  /* Must be at least two values on stack */
+  if (istate_height(ps) < 2) {
+    status = 0;
+    *perr = GENMAP_ERR_UNDERFLW;
+  }
+  
+  /* Get the values and pop them from the stack */
+  if (status) {
+    if (!istate_index(ps, 1, &v_base, perr)) {
+      abort();
+    }
+    if (!istate_index(ps, 0, &v_level, perr)) {
+      abort();
+    }
+    if (!istate_pop(ps, 2, perr)) {
+      abort();
+    }
+  }
+  
+  /* Make sure parameters have correct types */
+  if (status && ((genvar_type(&v_base) != GENVAR_GENOBJ) ||
+                  (!genvar_canfloat(&v_level)))) {
+    status = 0;
+    *perr = GENMAP_ERR_PARAMTYP;
+  }
+  
+  /* Check range of level */
+  if (status && (!(genvar_getFloat(&v_level) >= 0.0))) {
+    status = 0;
+    *perr = GENMAP_ERR_RANGE;
+  }
+  
+  /* Construct new clip generator */
+  if (status) {
+    new_gen = generator_clip(
+                          genvar_getGen(&v_base),
+                          genvar_getFloat(&v_level));
+  }
+  
+  /* Wrap generator and push onto interpreter stack */
+  if (status) {
+    genvar_setGen(&gv, new_gen);
+    if (!istate_push(ps, &gv, perr)) {
+      status = 0;
+    }
+  }
+  
+  /* Clear structures */
+  genvar_clear(&v_base);
+  genvar_clear(&v_level);
   genvar_clear(&gv);
   
   /* Release object references */
@@ -3677,6 +3691,12 @@ static int interpret(
           
         } else if (strcmp(ent.pKey, "scale") == 0) {
           if (!op_scale(ps, perr, samp_rate)) {
+            status = 0;
+            *pline = snparser_count(pp);
+          }
+        
+        } else if (strcmp(ent.pKey, "clip") == 0) {
+          if (!op_clip(ps, perr, samp_rate)) {
             status = 0;
             *pline = snparser_count(pp);
           }
