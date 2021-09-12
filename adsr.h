@@ -118,6 +118,34 @@ void adsr_release(ADSR_OBJ *pa);
 int32_t adsr_length(ADSR_OBJ *pa, int32_t dur);
 
 /*
+ * Compute the ADSR envelope multiplier for a given t and duration.
+ * 
+ * pa is the ADSR envelope.
+ * 
+ * t is the offset from the start of the envelope in samples.  It must
+ * be zero or greater.
+ * 
+ * dur is the duration of the event in samples.  It must be at least
+ * one.  The duration of the event is not necessarily the same as the
+ * duration of the envelope.
+ * 
+ * The return value is a multiplier in range [0, MAX_FRAC].
+ * 
+ * Parameters:
+ * 
+ *   pa - the ADSR envelope
+ * 
+ *   t - the t offset
+ * 
+ *   dur - the duration
+ * 
+ * Return:
+ * 
+ *   the ADSR multiplier
+ */
+int32_t adsr_compute(ADSR_OBJ *pa, int32_t t, int32_t dur);
+
+/*
  * Transform a given sample according to an ADSR envelope.
  * 
  * t is the time offset in samples from the beginning of the envelope.
