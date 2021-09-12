@@ -27,13 +27,10 @@
  * valid values.  They should be kept updated appropriately.
  */
 #define GENERATOR_F_SINE      (1)   /* Sine wave function     */
-#define GENERATOR_F_SQUARE    (2)   /* Square wave function   */
-#define GENERATOR_F_TRIANGLE  (3)   /* Triangle wave function */
-#define GENERATOR_F_SAWTOOTH  (4)   /* Sawtooth wave function */
-#define GENERATOR_F_NOISE     (5)   /* White noise function   */
+#define GENERATOR_F_NOISE     (2)   /* White noise function   */
 
 #define GENERATOR_F_MINVAL (1)
-#define GENERATOR_F_MAXVAL (5)
+#define GENERATOR_F_MAXVAL (2)
 
 /*
  * Type declarations
@@ -199,6 +196,32 @@ GENERATOR *generator_additive(GENERATOR **ppg, int32_t count);
 GENERATOR *generator_scale(GENERATOR *pBase, double scale);
 
 /*
+ * Construct a clip generator, which clips samples above a certain level
+ * from an underlying generator.
+ * 
+ * The level value may be any finite value that is zero or greater.
+ * 
+ * The reference count of the underlying generator is incremented.  The
+ * reference count of the constructed generator object starts out at
+ * one.
+ * 
+ * Clip generators do not have any "instance data."  All of their data
+ * is "class data" that is shared across all instances of the generator
+ * map.
+ * 
+ * Parameters:
+ * 
+ *   pBase - pointer to the underlying generator
+ * 
+ *   level - the maximum level to clip to
+ * 
+ * Return:
+ * 
+ *   the newly constructed clip generator
+ */
+GENERATOR *generator_clip(GENERATOR *pBase, double level);
+
+/*
  * Construct an operator generator.
  * 
  * fop is one of the GENERATOR_F constants, which determines the
@@ -238,28 +261,6 @@ GENERATOR *generator_scale(GENERATOR *pBase, double scale);
  * It must be either RATE_CD or RATE_DVD.  It is ignored for NOISE type
  * operators.
  * 
- * ny_limit is the frequency limit used to prevent aliasing artifacts.
- * This must be in range [0, samp_rate].  If at any point the operator's
- * actual output frequency reaches or exceeds ny_limit, then the
- * operator is disabled and just outputs zero.  ny_limit should not be
- * higher than the Nyquist limit, which is half the sampling rate.
- * 
- * hlimit is the maximum number of sine waves used for approximating
- * non-sine functions.  It must be zero or greater, and it is ignored
- * for NOISE and SINE operators.  If one, non-sine functions will be
- * approximated with sine waves.  Values above one will add additional
- * harmonics.  The higher the value, the more accurate the
- * approximation, but the more computation that is required.  Sine wave
- * harmonics that go above ny_limit will always be filtered out.
- * 
- * The special value of zero for hlimit means that non-sine functions
- * will be "raw" and rendered perfectly, with infinite harmonics.  This
- * is actually much faster to compute than the approximations.  However,
- * if mixed directly into the audio output, it will be subject to
- * aliasing distortion and filtering will be required to get rid of
- * frequencies above the Nyquist limit.  Using raw waves for modulating
- * other operators should work, though, and will be faster.
- * 
  * Parameters:
  * 
  *   fop - the GENERATOR_F constant selecting the operator function
@@ -276,11 +277,6 @@ GENERATOR *generator_scale(GENERATOR *pBase, double scale);
  * 
  *   samp_rate - the sampling rate, in Hz
  *
- *   ny_limit - the frequency limit, in Hz
- * 
- *   hlimit - maximum number of sine waves used for approximation, or
- *   zero for raw wave
- * 
  * Return:
  * 
  *   the newly constructed generator object
@@ -292,9 +288,7 @@ GENERATOR *generator_op(
     ADSR_OBJ  * pAmp,
     GENERATOR * pFM,
     GENERATOR * pAM,
-    int32_t     samp_rate,
-    int32_t     ny_limit,
-    int32_t     hlimit);
+    int32_t     samp_rate);
 
 /*
  * Increment the reference count of the given generator object.
