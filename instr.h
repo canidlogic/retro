@@ -11,6 +11,7 @@
 #include "retrodef.h"
 #include "stereo.h"
 #include "sqwave.h"
+#include "ttone.h"
 
 /*
  * The maximum number of instruments that may be defined.
@@ -165,7 +166,7 @@ void instr_setStereo(int32_t i, const STEREO_POS *psp);
  * must be greater than zero.
  * 
  * pitch is the pitch to generate.  It must be in the range
- * [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+ * [PITCH_MIN, PITCH_MAX].
  * 
  * Parameters:
  * 
@@ -234,7 +235,7 @@ int32_t instr_length(int32_t i, int32_t dur, void *pod);
  * must be greater than zero.
  * 
  * pitch is the pitch to generate.  It must be in the range
- * [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+ * [PITCH_MIN, PITCH_MAX].
  * 
  * amp is the amplitude of the sound at time offset t.  It must be in
  * range [0, MAX_FRAC].
