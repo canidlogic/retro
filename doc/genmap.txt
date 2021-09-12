@@ -123,8 +123,6 @@
 #   B. "adsr" must be an ADSR object reference
 #   C. "fm" must be a generator object reference or undef
 #   D. "am" must be a generator object reference or undef
-#   E. "ny_limit" must be an integer
-#   F. "hlimit" must be an integer
 #
 # The following default values are used for operator parameters that are
 # not defined in the parameter list:
@@ -133,8 +131,6 @@
 #   freq_boost = 0.0
 #   fm = undef
 #   am = undef
-#   ny_limit = 20000
-#   hlimit = 20
 #
 # The "fop" and "adsr" parameters are required.
 #
@@ -157,6 +153,12 @@
 # generated samples:
 
 =EXAMPLE_OP_2 20000.0 scale @EXAMPLE_SCALE
+
+# There is also a "clip" generator with the same syntax.  The
+# floating-point value in this case must be zero or greater.  If the
+# absolute value of a sample from the underlying generator exceeds this
+# level, it is clipped and held to this maximum level.  When combined
+# with scaling, this can be used for overdrive effects.
 
 # Additive generator objects are constructed by providing an array of
 # one or more generator object references that indicate the generators
