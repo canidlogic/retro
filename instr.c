@@ -7,6 +7,7 @@
  */
 
 #include "instr.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,11 +24,34 @@
  */
 #define ITYPE_NULL      (0)
 #define ITYPE_SQUARE    (1)
+#define ITYPE_FM        (2)
 
 /*
  * Type declarations
  * =================
  */
+
+/*
+ * Structure storing instrument settings for FM instrument types.
+ */
+typedef struct {
+  
+  /*
+   * Pointer to the root generator in the generator map.
+   * 
+   * The generator map should already be bound.  This structure will
+   * hold a reference to this generator.
+   */
+  GENERATOR *pRoot;
+  
+  /*
+   * The number of instance data structures required.
+   * 
+   * Must be one or greater.
+   */
+  int32_t icount;
+  
+} FM_PARAM;
 
 /*
  * The instrument register structure.
@@ -77,6 +101,11 @@ typedef struct {
      * The register must have a reference to the envelope object.
      */
     ADSR_OBJ *pa;
+    
+    /*
+     * FM instrument parameters.
+     */
+    FM_PARAM fmp;
   
   } val;
   
@@ -224,8 +253,15 @@ void instr_clear(int32_t i) {
   if (!instr_isclear(pr)) {
     /* Release the instrument data */
     if (pr->itype == ITYPE_SQUARE) {
+      /* Release square wave instrument */
       adsr_release((pr->val).pa);
       (pr->val).pa = NULL;
+    
+    } else if (pr->itype == ITYPE_FM) {
+      /* Release FM instrument */
+      generator_release((pr->val).fmp.pRoot);
+      (pr->val).fmp.pRoot = NULL;
+    
     } else {
       /* Shouldn't happen */
       abort();
@@ -320,7 +356,13 @@ void instr_dup(int32_t i_target, int32_t i_src) {
       
       /* Add any references */
       if (pt->itype == ITYPE_SQUARE) {
-        adsr_addref((pt->val).pa);
+        /* Add references for square wave instrument */
+        adsr_addref((pt->val).pa);      
+      
+      } else if (pt->itype == ITYPE_FM) {
+        /* Add references for FM instrument */
+        generator_addref((pt->val).fmp.pRoot);
+      
       } else {
         /* Shouldn't happen */
         abort();
@@ -390,11 +432,48 @@ void instr_setStereo(int32_t i, const STEREO_POS *psp) {
  */
 void *instr_prepare(int32_t i, int32_t dur, int32_t pitch) {
   
-  /* No instrument types use instance data yet, so return NULL */
-  (void) i;
-  (void) dur;
-  (void) pitch;
-  return NULL;
+  INSTR_REG *pr = NULL;
+  GENERATOR_OPDATA *pod = NULL;
+  int32_t x = 0;
+  int32_t icount = 0;
+  double f = 0.0;
+  
+  /* Get pointer to instrument register */
+  pr = instr_ptr(i);
+  
+  /* Check parameters */
+  if ((dur < 1) || (pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
+    abort();
+  }
+  
+  /* Only proceed if register not cleared */
+  if (!instr_isclear(pr)) {
+    /* Only proceed if FM instrument */
+    if (pr->itype == ITYPE_FM) {
+      
+      /* Look up the frequency for this pitch */
+      f = pitchfreq(pitch);
+      
+      /* Get the count of instance data structures */
+      icount = (pr->val).fmp.icount;
+      
+      /* Allocate the necessary set of generator instance data */
+      pod = (GENERATOR_OPDATA *) calloc(
+                                    (size_t) icount,
+                                    sizeof(GENERATOR_OPDATA));
+      if (pod == NULL) {
+        abort();
+      }
+      
+      /* Initialize all the instance data */
+      for(x = 0; x < icount; x++) {
+        generator_opdata_init(&(pod[x]), f, dur);
+      }
+    }
+  }
+  
+  /* Return instance data or NULL */
+  return pod;
 }
 
 /*
@@ -404,11 +483,6 @@ int32_t instr_length(int32_t i, int32_t dur, void *pod) {
   
   INSTR_REG *pr = NULL;
   int32_t result = 0;
-  
-  /* No instrument types use instance data yet */
-  if (pod != NULL) {
-    abort();
-  }
   
   /* Get pointer to instrument register */
   pr = instr_ptr(i);
@@ -426,7 +500,24 @@ int32_t instr_length(int32_t i, int32_t dur, void *pod) {
   } else {
     /* Register is not cleared, so call through */
     if (pr->itype == ITYPE_SQUARE) {
+      /* For square waves, call through to ADSR envelope, after making
+       * sure no instance data was provided */
+      if (pod != NULL) {
+        abort();
+      }
       result = adsr_length((pr->val).pa, dur);
+      
+    } else if (pr->itype == ITYPE_FM) {
+      /* For FM instruments, query generator map, after making sure
+       * instance data was provided */
+      if (pod == NULL) {
+        abort();
+      }
+      result = generator_length(
+                  (pr->val).fmp.pRoot,
+                  pod,
+                  (pr->val).fmp.icount);
+    
     } else {
       /* Shouldn't happen */
       abort();
@@ -450,13 +541,11 @@ void instr_get(
     void        * pod) {
   
   INSTR_REG *pr = NULL;
+  double sf = 0.0;
+  double af = 0.0;
   int16_t s = 0;
+  int32_t s32 = 0;
   int32_t intensity = 0;
-  
-  /* No instrument types use instance data yet */
-  if (pod != NULL) {
-    abort();
-  }
   
   /* Get pointer to instrument register */
   pr = instr_ptr(i);
@@ -484,6 +573,10 @@ void instr_get(
   
     /* Handle instrument types */
     if (pr->itype == ITYPE_SQUARE) {
+      /* Square wave instrument, verify that no instance data */
+      if (pod != NULL) {
+        abort();
+      }
   
       /* First of all, get the sample from the square wave generator */
       s = sqwave_get(pitch, t);
@@ -503,6 +596,51 @@ void instr_get(
     
       /* Finally, stereo-image the sample */
       stereo_image(s, pitch, &(pr->sp), pss);
+    
+    } else if (pr->itype == ITYPE_FM) {
+      /* FM instrument, verify that instance data */
+      if (pod == NULL) {
+        abort();
+      }
+      
+      /* First of all, get the generated floating-point sample */
+      sf = generator_invoke(
+                (pr->val).fmp.pRoot,
+                pod,
+                (pr->val).fmp.icount,
+                t);
+      
+      /* Second, compute floating-point intensity from the amplitude and
+       * the i_max & i_min parameters */
+      af = 
+        ((((double) amp) * ((double) (pr->i_max - pr->i_min))) /
+                  ((double) MAX_FRAC)) + ((double) pr->i_min);
+      
+      /* Next, multiply the floating-point sample by the intensity */
+      sf = (sf * af) / ((double) MAX_FRAC);
+      
+      /* If floating-point sample not finite, set to zero */
+      if (!isfinite(sf)) {
+        sf = 0.0;
+      }
+      
+      /* Clamp floating-point sample to 16-bit signed range */
+      if (sf > ((double) INT16_MAX)) {
+        sf = (double) INT16_MAX;
+      } else if (sf < (double) INT16_MIN) {
+        sf = (double) INT16_MIN;
+      }
+      
+      /* Convert to 32-bit integer and clamp to 16-bit range */
+      s32 = (int32_t) floor(sf);
+      if (s32 > INT16_MAX) {
+        s32 = INT16_MAX;
+      } else if (s32 < INT16_MIN) {
+        s32 = INT16_MIN;
+      }
+      
+      /* Finally, stereo-image the sample */
+      stereo_image((int16_t) s32, pitch, &(pr->sp), pss);
     
     } else {
       /* Shouldn't happen */
