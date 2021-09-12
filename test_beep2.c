@@ -42,6 +42,7 @@
  *   instr
  *   sqwave
  *   stereo
+ *   ttone
  *   wavwrite
  * 
  * The math library may need to be included with -lm
@@ -55,6 +56,7 @@
 #include "stereo.h"
 #include "instr.h"
 #include "retrodef.h"
+#include "ttone.h"
 #include "wavwrite.h"
 
 /*
@@ -117,7 +119,7 @@ static int soundbeep2(
   if (pPath == NULL) {
     abort();
   }
-  if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+  if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
     abort();
   }
   if ((sec < 1) || (sec > 60)) {
@@ -379,7 +381,7 @@ int main(int argc, char *argv[]) {
   
   /* Range check numeric parameters */
   if (status) {
-    if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+    if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
       status = 0;
       fprintf(stderr, "%s: Pitch parameter out of range!\n", pModule);
     }
