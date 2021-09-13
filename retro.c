@@ -7,7 +7,13 @@
  * Syntax
  * ------
  * 
- *   retro [output]
+ *   retro ([options])* [output]
+ * 
+ * [options] is an optional sequence of option declarations.  Currently,
+ * the only option is "-L" which must be followed by another parameter
+ * indicating a directory name to prefix to the search path.  Options
+ * are processed left to right, but each "-L" *prefixes* a directory to
+ * the search path.
  * 
  * [output] is the path to the output WAV file to write.  If it already
  * exists, it will be overwritten.
@@ -2738,6 +2744,7 @@ int main(int argc, char *argv[]) {
   const char *pModule = NULL;
   int status = 1;
   int errnum = 0;
+  int i = 0;
   long errline = 0;
   SNSOURCE *pIn = NULL;
   char *pExternal = NULL;
@@ -2756,22 +2763,59 @@ int main(int argc, char *argv[]) {
   
   /* Check argument count */
   if (status) {
-    if (argc != 2) {
+    if (argc < 2) {
       status = 0;
-      fprintf(stderr, "%s: Expecting one argument!\n", pModule);
+      fprintf(stderr, "%s: Expecting argument(s)!\n", pModule);
     }
   }
   
-  /* Verify argument is present */
+  /* Verify arguments are present */
   if (status) {
     if (argv == NULL) {
       abort();
     }
-    if (argv[0] == NULL) {
-      abort();
+    for(i = 0; i < argc; i++) {
+      if (argv[i] == NULL) {
+        abort();
+      }
     }
-    if (argv[1] == NULL) {
-      abort();
+  }
+  
+  /* Interpret any options before the final argument, which is the
+   * output file */
+  if (status) {
+    for(i = 1; i < argc - 1; i++) {
+      /* We only support "-L" options */
+      if (strcmp(argv[i], "-L") != 0) {
+        status = 0;
+        fprintf(stderr, "%s: Unrecognized option: %s\n",
+                  pModule, argv[i]);
+      }
+      
+      /* There must be a parameter to this option */
+      if (status && (i >= argc - 2)) {
+        status = 0;
+        fprintf(stderr, "%s: -L option is missing parameter!\n",
+                  pModule);
+      }
+      
+      /* Add parameter to search path */
+      if (status) {
+        if (!instr_addsearch(argv[i + 1])) {
+          status = 0;
+          fprintf(stderr, "%s: Search path is too long!\n", pModule);
+        }
+      }
+      
+      /* Skip over parameter */
+      if (status) {
+        i++;
+      }
+      
+      /* Leave loop if error */
+      if (!status) {
+        break;
+      }
     }
   }
   
@@ -2782,7 +2826,7 @@ int main(int argc, char *argv[]) {
   
   /* Call through */
   if (status) {
-    if (!retro(pIn, argv[1], &errnum, &errline, &pExternal)) {
+    if (!retro(pIn, argv[argc - 1], &errnum, &errline, &pExternal)) {
       if (pExternal != NULL) {
         /* External script name */
         fprintf(stderr, "%s: In external instrument %s:\n",
