@@ -83,6 +83,85 @@ void instr_define(
     const STEREO_POS * psp);
 
 /*
+ * Define an embedded instrument in register i.
+ * 
+ * i must be in range [0, INSTR_MAXCOUNT - 1].  instr_clear() is run
+ * automatically on the indicated register before the new instrument is
+ * defined.
+ * 
+ * pText is a nul-terminated string that contains the whole script for
+ * defining the instrument.
+ * 
+ * The minimum intensity will be set to zero and the maximum intensity
+ * will be set to maximum possible value.  The stereo position will be
+ * set to center.
+ * 
+ * per and pline are pointers to variables to receive an error code and
+ * a line number if there is an error.  The error code has the same
+ * meaning as defined by the genmap module.
+ * 
+ * Note that the line number refers to the one-indexed line WITHIN the
+ * embedded script.  Caller should convert to a line number within the
+ * whole synthesis script before displaying to the user.
+ * 
+ * Parameters:
+ * 
+ *   i - the instrument register
+ * 
+ *   pText - the full text of the instrument script
+ * 
+ *   per - pointer to variable to receive genmap error code
+ * 
+ *   pline - pointer to variable to receive line number within script
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+int instr_embedded(
+          int32_t   i,
+    const char    * pText,
+          int     * per,
+          long    * pline);
+
+/*
+ * Define an external instrument in register i.
+ * 
+ * This is a wrapper around instr_embedded.  The only different is that
+ * pCall points to a string containing the "call number" of the external
+ * instrument.  This wrapper function will find and load the external
+ * instrument from the external file and then call through to
+ * instr_embedded with the loaded script.
+ * 
+ * In this case, the line number *can* be displayed directly to the
+ * user, since the instrument script is by itself in a file.  However,
+ * the instrument name should be given to the user so they know which
+ * external instrument file the error happened in.
+ * 
+ * See Instruments.md in the doc directory for more about how external
+ * instrument definition files are found.
+ * 
+ * Parameters:
+ * 
+ *   i - the instrument register
+ * 
+ *   pCall - the "call number" of the external instrument script
+ * 
+ *   per - pointer to variable to receive genmap error code
+ * 
+ *   pline - pointer to variable to receive line number within script
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error 
+ */
+int instr_external(
+          int32_t   i,
+    const char    * pCall,
+          int     * per,
+          long    * pline);
+
+/*
  * Copy one instrument register to another.
  * 
  * i_target and i_src are the target and source registers, respectively.
