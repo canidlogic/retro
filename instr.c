@@ -7,7 +7,10 @@
  */
 
 #include "instr.h"
+
+#include "shastina.h"
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -321,6 +324,36 @@ void instr_define(
     adsr_addref(pa);
     memcpy(&(pr->sp), psp, sizeof(STEREO_POS));
   }
+}
+
+/*
+ * instr_embedded function.
+ */
+int instr_embedded(
+          int32_t   i,
+    const char    * pText,
+          int     * per,
+          long    * pline) {
+  /* @@TODO: */
+  fprintf(stderr, "TODO: embedded %s\n", pText);
+  *per = SNERR_BADCR;
+  *pline = 1;
+  return 0;
+}
+
+/*
+ * instr_external function.
+ */
+int instr_external(
+          int32_t   i,
+    const char    * pCall,
+          int     * per,
+          long    * pline) {
+  /* @@TODO: */
+  fprintf(stderr, "TODO: external %s\n", pCall);
+  *per = SNERR_BADCR;
+  *pline = 1;
+  return 0;
 }
 
 /*
