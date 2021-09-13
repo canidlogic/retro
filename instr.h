@@ -25,6 +25,25 @@
 #define INSTR_MAXCOUNT (4096)
 
 /*
+ * Prefix a directory to the search path.
+ * 
+ * An internal copy of this string is made and added to the search path.
+ * The function fails if the search path gets too long.
+ * 
+ * See Instruments.md in the doc directory for further information about
+ * the search path.
+ * 
+ * Parameters:
+ * 
+ *   pDir - the directory to prefix to the search path
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if search path too long
+ */
+int instr_addsearch(const char *pDir);
+
+/*
  * Clear the instrument register i.
  * 
  * i must be in range [0, INSTR_MAXCOUNT - 1].  If the given instrument
