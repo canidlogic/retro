@@ -243,6 +243,15 @@ static int instr_isclear(const INSTR_REG *pr) {
  */
 
 /*
+ * instr_addsearch function.
+ */
+int instr_addsearch(const char *pDir) {
+  /* @@TODO: */
+  fprintf(stderr, "TODO: Add search dir: %s\n", pDir);
+  return 1;
+}
+
+/*
  * instr_clear function.
  */
 void instr_clear(int32_t i) {
