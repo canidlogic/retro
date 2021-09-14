@@ -45,6 +45,9 @@
  *   ttone
  *   wavwrite
  * 
+ * Also compile with the os_ module that is appropriate for the target
+ * platform.
+ * 
  * Also, compile with libshastina beta 0.9.3 or compatible.
  * 
  * Finally, the math library may need to be included with -lm
