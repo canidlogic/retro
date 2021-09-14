@@ -903,7 +903,7 @@ static int op_instr(
 static int op_idup(int32_t iid, int32_t src, int *per) {
   
   int status = 1;
-  
+
   /* Check per and state */
   if ((per == NULL) || (!m_init)) {
     abort();
@@ -1829,6 +1829,9 @@ static void header_config(
   
   memset(m_group_stack, 0, MAX_GROUP * sizeof(int32_t));
   memset(m_stack, 0, MAX_STACK * sizeof(STACK_REC));
+  
+  /* Notify instr module of rate */
+  instr_setsamp(rate);
 }
 
 /*
@@ -2164,6 +2167,11 @@ static int retro(
             *per = ERR_INSTR;
             *pln = snparser_count(pp);
           }
+        }
+        
+        /* Decrement instrument index */
+        if (status) {
+          v--;
         }
         
         /* If this is an embedded script, figure out a number that
@@ -2854,7 +2862,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "%s: In external instrument %s:\n",
                   pModule, pExternal);
       }
-      if ((errline >= 0) && (errline < LONG_MAX)) {
+      if ((errline > 0) && (errline < LONG_MAX)) {
         /* Line number to report */
         status = 0;
         fprintf(stderr, "%s: [Line %ld] %s!\n",
