@@ -25,6 +25,24 @@
 #define INSTR_MAXCOUNT (4096)
 
 /*
+ * Error code module constants.
+ * 
+ * This determines the source of error codes.  Error codes coming from
+ * this module (INSTR_ERRMOD_INSTR) can be translated to error messages
+ * with instr_errstr().
+ */
+#define INSTR_ERRMOD_INSTR    (1)
+#define INSTR_ERRMOD_SHASTINA (2)
+#define INSTR_ERRMOD_GENMAP   (3)
+
+/*
+ * Error codes specific to this module (INSTR_ERRMOD_INSTR source).
+ * 
+ * Use instr_errstr() to translate.
+ */
+#define INSTR_ERR_NOTFOUND    (1)   /* Can't find external instrument */
+
+/*
  * Prefix a directory to the search path.
  * 
  * An internal copy of this string is made and added to the search path.
@@ -116,8 +134,10 @@ void instr_define(
  * set to center.
  * 
  * per and pline are pointers to variables to receive an error code and
- * a line number if there is an error.  The error code has the same
- * meaning as defined by the genmap module.
+ * a line number if there is an error.  per_src points to an integer
+ * to receive one of the INSTR_ERRMOD_ constants that indicates what
+ * Retro module the error code comes from, which determines the meaning
+ * of the error code.
  * 
  * Note that the line number refers to the one-indexed line WITHIN the
  * embedded script.  Caller should convert to a line number within the
@@ -131,6 +151,8 @@ void instr_define(
  * 
  *   per - pointer to variable to receive genmap error code
  * 
+ *   per_src - the module from which the error number comes
+ * 
  *   pline - pointer to variable to receive line number within script
  * 
  * Return:
@@ -141,6 +163,7 @@ int instr_embedded(
           int32_t   i,
     const char    * pText,
           int     * per,
+          int     * per_src,
           long    * pline);
 
 /*
@@ -168,6 +191,8 @@ int instr_embedded(
  * 
  *   per - pointer to variable to receive genmap error code
  * 
+ *   per_src - the module from which the error number comes
+ * 
  *   pline - pointer to variable to receive line number within script
  * 
  * Return:
@@ -178,6 +203,7 @@ int instr_external(
           int32_t   i,
     const char    * pCall,
           int     * per,
+          int     * per_src,
           long    * pline);
 
 /*
@@ -372,5 +398,26 @@ void instr_get(
     int16_t       amp,
     STEREO_SAMP * pss,
     void        * pod);
+
+/*
+ * Translate an error code received from this module to a message.
+ * 
+ * This only works with codes that have an origin INSTR_ERRMOD_INSTR.
+ * 
+ * The returned message will be statically allocated, so do not try to
+ * free it.  It begins with a capital letter but has no punctuation nor
+ * line break at the end.
+ * 
+ * "Unknown error" is returned if the error code is not recognized.
+ * 
+ * Parameters:
+ * 
+ *   code - the error code to translate
+ * 
+ * Return:
+ * 
+ *   an error message
+ */
+const char *instr_errstr(int code);
 
 #endif
