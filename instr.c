@@ -7,6 +7,7 @@
  */
 
 #include "instr.h"
+#include "os.h"
 
 #include "shastina.h"
 #include <math.h>
@@ -30,9 +31,40 @@
 #define ITYPE_FM        (2)
 
 /*
+ * The maximum number of entries that can be added to the search chain.
+ * 
+ * This does NOT include the default search entries.
+ */
+#define MAX_SEARCH_LINK (256)
+
+/*
  * Type declarations
  * =================
  */
+
+/*
+ * SEARCH_LINK structure for entries on the search path chain.
+ * 
+ * Preceded by a structure prototype so the structure can
+ * self-reference.
+ */
+struct SEARCH_LINK_TAG;
+typedef struct SEARCH_LINK_TAG SEARCH_LINK;
+struct SEARCH_LINK_TAG {
+  
+  /*
+   * Pointer to next entry on search path chain, or NULL if last entry.
+   */
+  SEARCH_LINK *pNext;
+  
+  /*
+   * The directory path of this search entry.
+   * 
+   * The string is nul-terminated and extends beyond the end of the
+   * structure.
+   */
+  char path[1];
+};
 
 /*
  * Structure storing instrument settings for FM instrument types.
@@ -120,6 +152,14 @@ typedef struct {
  */
 
 /*
+ * The search link chain.
+ * 
+ * Use instr_chaininit() to initialize this chain with default values if
+ * it is empty.
+ */
+static SEARCH_LINK *m_instr_search = NULL;
+
+/*
  * Flag indicating whether the instrument register table has been
  * initialized yet.
  * 
@@ -141,9 +181,127 @@ static INSTR_REG m_instr_t[INSTR_MAXCOUNT];
  */
 
 /* Prototypes */
+static void instr_chaininit(void);
+
 static void instr_t_init(void);
 static INSTR_REG *instr_ptr(int32_t i);
 static int instr_isclear(const INSTR_REG *pr);
+
+/*
+ * Initialize the search chain with default values if it is empty.
+ * 
+ * If m_instr_search has at least one element, this function does
+ * nothing.  If the chain is empty, this function will initialize the
+ * chain with the following, with (2) being at the end of the chain:
+ * 
+ *   1. "./retro_lib"
+ *   2. "~/retro_lib" where ~ is the user home directory
+ * 
+ * If the user home directory can't be determined, element (2) is not
+ * added to the chain.
+ * 
+ * This function does NOT check whether the directories actually exist.
+ */
+static void instr_chaininit(void) {
+  
+  static const char *pSubdir = "retro_lib";
+  char *pHome = NULL;
+  int32_t full_len = 0;
+  int32_t new_len = 0;
+  SEARCH_LINK *pl = NULL;
+  char cb[2];
+  
+  /* Initialize buffer */
+  memset(&(cb[0]), 0, 2);
+  
+  /* Only proceed if chain not initialized */
+  if (m_instr_search == NULL) {
+    
+    /* Get the home directory, if possible */
+    pHome = os_gethome();
+    
+    /* If we got the home directory, add an entry for the retro_lib
+     * subdirectory */
+    if (pHome != NULL) {
+      
+      /* Get the length of the home directory */
+      full_len = (int32_t) strlen(pHome);
+      
+      /* Get the length of the subdirectory, including separator */
+      new_len = (int32_t) (strlen(pSubdir) + 1);
+      
+      /* Only proceed if full length can be computed, including space
+       * for the link structure, which includes the terminating nul */
+      if (full_len <=
+              INT32_MAX - new_len - ((int32_t) sizeof(SEARCH_LINK))) {
+        
+        /* Compute full length of path string, including nul */
+        full_len = full_len + new_len + 1;
+        
+        /* Compute full length of link structure */
+        new_len = (full_len - 1) + ((int32_t) sizeof(SEARCH_LINK));
+        
+        /* Allocate link structure */
+        pl = (SEARCH_LINK *) malloc((size_t) new_len);
+        if (pl == NULL) {
+          abort();
+        }
+        memset(pl, 0, (size_t) new_len);
+        
+        /* Set next pointer to NULL */
+        pl->pNext = NULL;
+        
+        /* Copy in the home directory */
+        strcpy(&((pl->path)[0]), pHome);
+        
+        /* Append the directory separator character */
+        cb[0] = (char) os_getsep();
+        strcat(&((pl->path)[0]), &(cb[0]));
+        
+        /* Append the subdirectory */
+        strcat(&((pl->path)[0]), pSubdir);
+        
+        /* Add the link to the start of the chain */
+        m_instr_search = pl;
+        pl = NULL;
+      }
+    }
+    
+    /* Compute full length of current directory version of retro_lib,
+     * including terminating nul */
+    full_len = ((int32_t) strlen(pSubdir)) + 3;
+    
+    /* Compute full length of link structure */
+    new_len = (full_len - 1) + ((int32_t) sizeof(SEARCH_LINK));
+    
+    /* Allocate link structure */
+    pl = (SEARCH_LINK *) malloc((size_t) new_len);
+    if (pl == NULL) {
+      abort();
+    }
+    memset(pl, 0, (size_t) new_len);
+    
+    /* Set next pointer to current value of search chain */
+    pl->pNext = m_instr_search;
+    
+    /* Begin with the period character followed by separator */
+    (pl->path)[0] = (char) '.';
+    (pl->path)[1] = (char) os_getsep();
+    
+    /* Append subdirectory name */
+    strcat(&((pl->path)[0]), pSubdir);
+    
+    /* Add the link to the start of the chain */
+    m_instr_search = pl;
+    pl= NULL;
+    
+    /* Free home path copy, if allocated */
+    if (pHome != NULL) {
+      free(pHome);
+      pHome = NULL;
+    }
+  }
+}
 
 /*
  * Initialize the instrument register table if not already initialized.
@@ -246,9 +404,53 @@ static int instr_isclear(const INSTR_REG *pr) {
  * instr_addsearch function.
  */
 int instr_addsearch(const char *pDir) {
-  /* @@TODO: */
-  fprintf(stderr, "TODO: Add search dir: %s\n", pDir);
-  return 1;
+  
+  static int32_t el_count = 0;
+  
+  int status = 1;
+  SEARCH_LINK *pl = NULL;
+  int32_t full_len = 0;
+  
+  /* Initialize search chain with default values if needed */
+  instr_chaininit();
+  
+  /* Only proceed if not too many elements */
+  if (el_count < MAX_SEARCH_LINK) {
+    /* Not too many search links, so increment count */
+    el_count++;
+    
+    /* Compute full length of new link */
+    full_len = (int32_t) strlen(pDir);
+    if (full_len <= INT32_MAX - ((int32_t) sizeof(SEARCH_LINK))) {
+      full_len = full_len + ((int32_t) sizeof(SEARCH_LINK));
+    } else {
+      abort();  /* overflow */
+    }
+    
+    /* Allocate new link structure */
+    pl = (SEARCH_LINK *) malloc((size_t) full_len);
+    if (pl == NULL) {
+      abort();
+    }
+    memset(pl, 0, (size_t) full_len);
+    
+    /* Set next pointer to current chain */
+    pl->pNext = m_instr_search;
+    
+    /* Copy in directory */
+    strcpy(&((pl->path)[0]), pDir);
+    
+    /* Prefix to chain */
+    m_instr_search = pl;
+    pl = NULL;
+    
+  } else {
+    /* Too many search links */
+    status = 0;
+  }
+  
+  /* Return status */
+  return status;
 }
 
 /*
