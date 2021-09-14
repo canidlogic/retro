@@ -40,7 +40,11 @@
  * 
  * Use instr_errstr() to translate.
  */
+#define INSTR_ERR_OK          (0)   /* No error */
 #define INSTR_ERR_NOTFOUND    (1)   /* Can't find external instrument */
+#define INSTR_ERR_BADCALL     (2)   /* Invalid call number */
+#define INSTR_ERR_HUGEPATH    (3)   /* Instrument path too long */
+#define INSTR_ERR_OPEN        (4)   /* Can't open instrument file */
 
 /*
  * Prefix a directory to the search path.
@@ -60,6 +64,18 @@
  *   non-zero if successful, zero if search path too long
  */
 int instr_addsearch(const char *pDir);
+
+/*
+ * Set the sampling rate to be used when building instruments.
+ * 
+ * This must be either RATE_CD or RATE_DVD.  This may only be called
+ * once.
+ * 
+ * Parameters:
+ * 
+ *   rate - the sampling rate to set
+ */
+void instr_setsamp(int32_t rate);
 
 /*
  * Clear the instrument register i.
@@ -122,6 +138,8 @@ void instr_define(
 /*
  * Define an embedded instrument in register i.
  * 
+ * You must call instr_setsamp() before this function or a fault occurs.
+ * 
  * i must be in range [0, INSTR_MAXCOUNT - 1].  instr_clear() is run
  * automatically on the indicated register before the new instrument is
  * defined.
@@ -168,6 +186,8 @@ int instr_embedded(
 
 /*
  * Define an external instrument in register i.
+ * 
+ * You must call instr_setsamp() before this function or a fault occurs.
  * 
  * This is a wrapper around instr_embedded.  The only different is that
  * pCall points to a string containing the "call number" of the external
@@ -409,6 +429,7 @@ void instr_get(
  * line break at the end.
  * 
  * "Unknown error" is returned if the error code is not recognized.
+ * "No error" is returned if INSTR_ERR_OK is passed.
  * 
  * Parameters:
  * 
