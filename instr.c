@@ -8,6 +8,7 @@
 
 #include "instr.h"
 #include "os.h"
+#include "genmap.h"
 
 #include "shastina.h"
 #include <math.h>
@@ -36,6 +37,12 @@
  * This does NOT include the default search entries.
  */
 #define MAX_SEARCH_LINK (256)
+
+/*
+ * The maximum length, including terminating nul, of the buffer to use
+ * for building paths to instrument files.
+ */
+#define MAX_SEARCH_BUF  (4096)
 
 /*
  * Type declarations
@@ -160,6 +167,11 @@ typedef struct {
 static SEARCH_LINK *m_instr_search = NULL;
 
 /*
+ * The sampling rate, or 0 if not set yet.
+ */
+static int32_t m_instr_rate = 0;
+
+/*
  * Flag indicating whether the instrument register table has been
  * initialized yet.
  * 
@@ -186,6 +198,13 @@ static void instr_chaininit(void);
 static void instr_t_init(void);
 static INSTR_REG *instr_ptr(int32_t i);
 static int instr_isclear(const INSTR_REG *pr);
+
+static int instr_load(
+    int32_t    i,
+    SNSOURCE * pIn,
+    int      * per,
+    int      * per_src,
+    long     * pline);
 
 /*
  * Initialize the search chain with default values if it is empty.
@@ -394,6 +413,115 @@ static int instr_isclear(const INSTR_REG *pr) {
 }
 
 /*
+ * Load an instrument from a given Shastina source.
+ * 
+ * i must be in range [0, INSTR_MAXCOUNT - 1].  instr_clear() is run
+ * automatically on the indicated register before the new instrument is
+ * defined.
+ * 
+ * pIn is a Shastina source that contains the whole script for defining
+ * the instrument.  It must support multipass.
+ * 
+ * The minimum intensity will be set to zero and the maximum intensity
+ * will be set to maximum possible value.  The stereo position will be
+ * set to center.
+ * 
+ * per and pline are pointers to variables to receive an error code and
+ * a line number if there is an error.  per_src points to an integer
+ * to receive one of the INSTR_ERRMOD_ constants that indicates what
+ * Retro module the error code comes from, which determines the meaning
+ * of the error code.
+ * 
+ * Parameters:
+ * 
+ *   i - the instrument register
+ * 
+ *   pIn - the source for the instrument script
+ * 
+ *   per - pointer to variable to receive genmap error code
+ * 
+ *   per_src - the module from which the error number comes
+ * 
+ *   pline - pointer to variable to receive line number within script
+ * 
+ * Return:
+ * 
+ *   non-zero if successful, zero if error
+ */
+static int instr_load(
+    int32_t    i,
+    SNSOURCE * pIn,
+    int      * per,
+    int      * per_src,
+    long     * pline) {
+  
+  int status = 1;
+  INSTR_REG *pr = NULL;
+  GENMAP_RESULT gmr;
+  
+  /* Initialize structures */
+  memset(&gmr, 0, sizeof(GENMAP_RESULT));
+  gmr.pRoot = NULL;
+  
+  /* Check parameters */
+  if ((i < 0) || (i >= INSTR_MAXCOUNT) ||
+      (pIn == NULL) || (per == NULL) ||
+      (per_src == NULL) || (pline == NULL)) {
+    abort();
+  }
+  if (!snsource_ismulti(pIn)) {
+    abort();
+  }
+  
+  /* Check state */
+  if (m_instr_rate == 0) {
+    abort();
+  }
+  
+  /* We currently only support genmap instruments, so call through */
+  genmap_run(pIn, &gmr, m_instr_rate);
+  
+  /* Handle errors */
+  if (gmr.errcode != GENMAP_OK) {
+    status = 0;
+    if (gmr.errcode < 0) {
+      *per_src = INSTR_ERRMOD_SHASTINA;
+    } else {
+      *per_src = INSTR_ERRMOD_GENMAP;
+    }
+    *per = gmr.errcode;
+    *pline = gmr.linenum;
+  }
+  
+  /* If successful, set up the instrument */
+  if (status) {
+    /* Clear instrument register */
+    instr_clear(i);
+    
+    /* Get instrument register */
+    pr = instr_ptr(i);
+   
+    /* Setup default intensity and stereo position */
+    pr->i_min = 0;
+    pr->i_max = MAX_FRAC;
+    stereo_setPos(&(pr->sp), 0);
+    
+    /* Store FM instrument definition */
+    pr->itype = ITYPE_FM;
+    (pr->val).fmp.pRoot = gmr.pRoot;
+    generator_addref(gmr.pRoot);
+    (pr->val).fmp.icount = gmr.icount;
+  }
+  
+  /* Release object references */
+  generator_release(gmr.pRoot);
+  gmr.pRoot = NULL;
+  
+  /* Return status */
+  return status;
+}
+
+/*
  * Public function implementations
  * ===============================
  * 
@@ -451,6 +579,25 @@ int instr_addsearch(const char *pDir) {
   
   /* Return status */
   return status;
+}
+
+/*
+ * instr_setsamp function.
+ */
+void instr_setsamp(int32_t rate) {
+  
+  /* Check parameter */
+  if ((rate != RATE_CD) && (rate != RATE_DVD)) {
+    abort();
+  }
+  
+  /* Check state */
+  if (m_instr_rate != 0) {
+    abort();
+  }
+  
+  /* Store rate */
+  m_instr_rate = rate;
 }
 
 /*
@@ -546,12 +693,31 @@ int instr_embedded(
           int     * per,
           int     * per_src,
           long    * pline) {
-  /* @@TODO: */
-  fprintf(stderr, "TODO: embedded %s\n", pText);
-  *per = SNERR_BADCR;
-  *per_src = INSTR_ERRMOD_SHASTINA;
-  *pline = 1;
-  return 0;
+  
+  int status = 1;
+  SNSOURCE *pIn = NULL;
+  
+  /* Check parameters */
+  if ((i < 0) || (i >= INSTR_MAXCOUNT) ||
+      (pText == NULL) || (per == NULL) ||
+      (per_src == NULL) || (pline == NULL)) {
+    abort();
+  }
+  
+  /* Wrap string in source */
+  pIn = snsource_string(pText);
+  
+  /* Load the instrument */
+  if (!instr_load(i, pIn, per, per_src, pline)) {
+    status = 0;
+  }
+  
+  /* Release source if allocated */
+  snsource_free(pIn);
+  pIn = NULL;
+  
+  /* Return status */
+  return status;
 }
 
 /*
@@ -563,12 +729,218 @@ int instr_external(
           int     * per,
           int     * per_src,
           long    * pline) {
-  /* @@TODO: */
-  fprintf(stderr, "TODO: external %s\n", pCall);
-  *per = SNERR_BADCR;
-  *per_src = INSTR_ERRMOD_SHASTINA;
-  *pline = 1;
-  return 0;
+  
+  const char *pExt = ".iretro";
+  
+  int status = 1;
+  int file_found = 0;
+  int32_t full_len = 0;
+  int32_t x = 0;
+  char *pc = NULL;
+  char *pbuf = NULL;
+  char *pt = NULL;
+  SEARCH_LINK *pl = NULL;
+  FILE *pHIn = NULL;
+  SNSOURCE *pIn = NULL;
+  char cb[2];
+  
+  /* Initialize buffers */
+  memset(cb, 0, 2);
+  
+  /* Check parameters */
+  if ((i < 0) || (i >= INSTR_MAXCOUNT) ||
+      (pCall == NULL) || (per == NULL) ||
+      (per_src == NULL) || (pline == NULL)) {
+    abort();
+  }
+  
+  /* Reset error information */
+  *per = INSTR_ERR_OK;
+  *per_src = INSTR_ERRMOD_INSTR;
+  *pline = 0;
+  
+  /* Initialize search chain if necessary */
+  instr_chaininit();
+  
+  /* Allocate path buffer */
+  pbuf = (char *) malloc((size_t) MAX_SEARCH_BUF);
+  if (pbuf == NULL) {
+    abort();
+  }
+  memset(pbuf, 0, (size_t) MAX_SEARCH_BUF);
+  
+  /* Make a copy of the call number string */
+  pc = (char *) malloc(strlen(pCall) + 1);
+  if (pc == NULL) {
+    abort();
+  }
+  strcpy(pc, pCall);
+  
+  /* Make sure call number string has at least one character and that
+   * the first character is not a dot */
+  if ((*pc == 0) || (*pc == '.')) {
+    status = 0;
+    *per = INSTR_ERR_BADCALL;
+    *per_src = INSTR_ERRMOD_INSTR;
+    *pline = 0;
+  }
+  
+  /* Make sure only lowercase ASCII letters, decimal digits,
+   * underscores, and periods are used, that no period appears
+   * immediately before another period, and that the period is not the
+   * last character */
+  if (status) {
+    for(pt = pc; *pt != 0; pt++) {
+      if (((*pt < 'a') || (*pt > 'z')) &&
+          ((*pt < '0') || (*pt > '9')) &&
+          (*pt != '_') && (*pt != '.')) {
+        status = 0;
+      }
+      if (*pt == '.') {
+        if ((pt[1] == '.') || (pt[1] == 0)) {
+          status = 0;
+        }
+      }
+      if (!status) {
+        break;
+      }
+    }
+    if (!status) {
+      *per = INSTR_ERR_BADCALL;
+      *per_src = INSTR_ERRMOD_INSTR;
+      *pline = 0;
+    }
+  }
+  
+  /* Change all periods to platform-specific separator */
+  if (status) {
+    for(pt = pc; *pt != 0; pt++) {
+      if (*pt == '.') {
+        *pt = (char) os_getsep();
+      }
+    }
+  }
+  
+  /* Go through all base directories in the search path looking for the
+   * instrument file */
+  if (status) {
+    for(pl = m_instr_search; pl != NULL; pl = pl->pNext) {
+      
+      /* Compute the full length of the path that will be constructed */
+      full_len = (int32_t) strlen(pl->path);
+      if (full_len <= INT32_MAX - 2) {
+        full_len += 2;
+      } else {
+        abort();  /* overflow */
+      }
+      
+      x = (int32_t) strlen(pc);
+      if (x <= INT32_MAX - full_len) {
+        full_len += x;
+      }
+      
+      x = (int32_t) strlen(pExt);
+      if (x <= INT32_MAX - full_len) {
+        full_len += x;
+      }
+      
+      /* Check that full length fits in path buffer */
+      if (full_len >= MAX_SEARCH_BUF) {
+        status = 0;
+        *per = INSTR_ERR_HUGEPATH;
+        *per_src = INSTR_ERRMOD_INSTR;
+        *pline = 0;
+      }
+      
+      /* Clear the path buffer */
+      if (status) {
+        memset(pbuf, 0, MAX_SEARCH_BUF);
+      }
+      
+      /* Build the full path in the buffer */
+      if (status) {
+        strcpy(pbuf, pl->path);
+        
+        cb[0] = (char) os_getsep();
+        strcat(pbuf, cb);
+        
+        strcat(pbuf, pc);
+        strcat(pbuf, pExt);
+      }
+      
+      /* Check if file exists; leave loop if it does and set
+       * file_found flag */
+      if (status) {
+        if (os_isfile(pbuf)) {
+          file_found = 1;
+          break;
+        }
+      }
+      
+      /* Leave loop if error */
+      if (!status) {
+        break;
+      }
+    }
+    
+    /* Fail if no instrument file found */
+    if (status && (!file_found)) {
+      status = 0;
+      *per = INSTR_ERR_NOTFOUND;
+      *per_src = INSTR_ERRMOD_INSTR;
+      *pline = 0;
+    }
+  }
+  
+  /* If we got here, then we found an instrument file and its path is in
+   * the pbuf buffer -- open a file handle to read it */
+  if (status) {
+    pHIn = fopen(pbuf, "rb");
+    if (pHIn == NULL) {
+      status = 0;
+      *per = INSTR_ERR_OPEN;
+      *per_src = INSTR_ERRMOD_INSTR;
+      *pline = 0;
+    }
+  }
+  
+  /* Transfer the file handle into a Shastina source */
+  if (status) {
+    pIn = snsource_stream(pHIn, SNSTREAM_OWNER | SNSTREAM_RANDOM);
+    pHIn = NULL;
+  }
+  
+  /* Load instrument */
+  if (status) {
+    if (!instr_load(i, pIn, per, per_src, pline)) {
+      status = 0;
+    }
+  }
+  
+  /* Close Shastina source if open */
+  snsource_free(pIn);
+  pIn = NULL;
+  
+  /* Close file if open */
+  if (pHIn != NULL) {
+    fclose(pHIn);
+    pHIn = NULL;
+  }
+  
+  /* Release path buffer if allocated */
+  if (pbuf != NULL) {
+    free(pbuf);
+    pbuf = NULL;
+  }
+  
+  /* Release copy of call number if allocated */
+  if (pc != NULL) {
+    free(pc);
+    pc = NULL;
+  }
+  
+  /* Return status */
+  return status;
 }
 
 /*
@@ -578,7 +950,7 @@ void instr_dup(int32_t i_target, int32_t i_src) {
   
   INSTR_REG *ps = NULL;
   INSTR_REG *pt = NULL;
-  
+
   /* Check parameters */
   if ((i_target < 0) || (i_src < 0) ||
       (i_target >= INSTR_MAXCOUNT) || (i_src >= INSTR_MAXCOUNT)) {
@@ -591,7 +963,7 @@ void instr_dup(int32_t i_target, int32_t i_src) {
     /* Get pointers to source and target */
     ps = instr_ptr(i_src);
     pt = instr_ptr(i_target);
-    
+
     /* Check if source is cleared */
     if (instr_isclear(ps)) {
       /* Source is cleared, so just clear target */
@@ -744,7 +1116,7 @@ int32_t instr_length(int32_t i, int32_t dur, void *pod) {
   if (instr_isclear(pr)) {
     /* Register is cleared, so result is always one */
     result = 1;
-    
+
   } else {
     /* Register is not cleared, so call through */
     if (pr->itype == ITYPE_SQUARE) {
@@ -794,7 +1166,7 @@ void instr_get(
   int16_t s = 0;
   int32_t s32 = 0;
   int32_t intensity = 0;
-  
+
   /* Get pointer to instrument register */
   pr = instr_ptr(i);
   
@@ -850,7 +1222,7 @@ void instr_get(
       if (pod == NULL) {
         abort();
       }
-      
+    
       /* First of all, get the generated floating-point sample */
       sf = generator_invoke(
                 (pr->val).fmp.pRoot,
@@ -863,7 +1235,7 @@ void instr_get(
       af = 
         ((((double) amp) * ((double) (pr->i_max - pr->i_min))) /
                   ((double) MAX_FRAC)) + ((double) pr->i_min);
-      
+
       /* Next, multiply the floating-point sample by the intensity */
       sf = (sf * af) / ((double) MAX_FRAC);
       
@@ -910,8 +1282,24 @@ const char *instr_errstr(int code) {
   const char *pResult = NULL;
   
   switch (code) {
+    case INSTR_ERR_OK:
+      pResult = "No error";
+      break;
+    
     case INSTR_ERR_NOTFOUND:
       pResult = "Can't find external instrument file";
+      break;
+    
+    case INSTR_ERR_BADCALL:
+      pResult = "Invalid instrument call number";
+      break;
+    
+    case INSTR_ERR_HUGEPATH:
+      pResult = "External instrument path too long";
+      break;
+    
+    case INSTR_ERR_OPEN:
+      pResult = "Can't open instrument file";
       break;
     
     default:
