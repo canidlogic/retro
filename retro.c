@@ -124,6 +124,9 @@
 #define ERR_GENMAP_MIN  (800)   /* Minimum error code for genmap */
 #define ERR_GENMAP_MAX  (899)   /* Maximum error code for genmap */
 
+#define ERR_INSTR_MIN   (900)   /* Minimum error code for instr */
+#define ERR_INSTR_MAX   (999)   /* Maximum error code for instr */
+
 /*
  * Constants
  * =========
@@ -2006,6 +2009,7 @@ static int retro(
   
   int32_t v = 0;
   int err_num = 0;
+  int err_mod = 0;
   long err_line = 0;
 
   /* Initialize structures and arrays */
@@ -2205,7 +2209,8 @@ static int retro(
         /* Call through to appropriate function */
         if (status && (ent.str_type == SNSTRING_CURLY)) {
           /* Curly string means embedded instrument */
-          if (!instr_embedded(v, ent.pValue, &err_num, &err_line)) {
+          if (!instr_embedded(
+                  v, ent.pValue, &err_num, &err_mod, &err_line)) {
             /* Error in embedded script, so first of all modify line
              * number by offset, or set to zero if not valid */
             if (emb_line >= 0) {
@@ -2220,10 +2225,15 @@ static int retro(
             }
             
             /* Convert error code */
-            if (err_num >= 0) {
+            if (err_mod == INSTR_ERRMOD_GENMAP) {
               *per = err_num + ERR_GENMAP_MIN;
-            } else {
+            } else if (err_mod == INSTR_ERRMOD_SHASTINA) {
               *per = err_num + ERR_SN_MAX;
+            } else if (err_mod == INSTR_ERRMOD_INSTR) {
+              *per = err_num + ERR_INSTR_MIN;
+            } else {
+              /* Unknown error */
+              *per = INT_MAX;
             }
             
             /* Set corrected line number and clear status */
@@ -2233,7 +2243,8 @@ static int retro(
           
         } else if (status && (ent.str_type == SNSTRING_QUOTED)) {
           /* Quoted string means external instrument */
-          if (!instr_external(v, ent.pValue, &err_num, &err_line)) {
+          if (!instr_external(
+                  v, ent.pValue, &err_num, &err_mod, &err_line)) {
             /* Error in external script, so only minor adjustment needed
              * to line number */
             if (err_line == LONG_MAX) {
@@ -2251,10 +2262,15 @@ static int retro(
             }
             
             /* Convert error code */
-            if (err_num >= 0) {
+            if (err_mod == INSTR_ERRMOD_GENMAP) {
               *per = err_num + ERR_GENMAP_MIN;
-            } else {
+            } else if (err_mod == INSTR_ERRMOD_SHASTINA) {
               *per = err_num + ERR_SN_MAX;
+            } else if (err_mod == INSTR_ERRMOD_INSTR) {
+              *per = err_num + ERR_INSTR_MIN;
+            } else {
+              /* Unknown error */
+              *per = INT_MAX;
             }
             
             /* Set line number and clear status */
@@ -2576,7 +2592,10 @@ static const char *error_string(int code) {
     
   } else if ((code >= ERR_GENMAP_MIN) && (code <= ERR_GENMAP_MAX)) {
     pResult = genmap_errstr(code - ERR_GENMAP_MIN);
-    
+  
+  } else if ((code >= ERR_INSTR_MIN) && (code <= ERR_INSTR_MAX)) {
+    pResult = instr_errstr(code - ERR_INSTR_MIN);
+  
   } else {
   
     switch (code) {
