@@ -544,10 +544,12 @@ int instr_embedded(
           int32_t   i,
     const char    * pText,
           int     * per,
+          int     * per_src,
           long    * pline) {
   /* @@TODO: */
   fprintf(stderr, "TODO: embedded %s\n", pText);
   *per = SNERR_BADCR;
+  *per_src = INSTR_ERRMOD_SHASTINA;
   *pline = 1;
   return 0;
 }
@@ -559,10 +561,12 @@ int instr_external(
           int32_t   i,
     const char    * pCall,
           int     * per,
+          int     * per_src,
           long    * pline) {
   /* @@TODO: */
   fprintf(stderr, "TODO: external %s\n", pCall);
   *per = SNERR_BADCR;
+  *per_src = INSTR_ERRMOD_SHASTINA;
   *pline = 1;
   return 0;
 }
@@ -896,4 +900,23 @@ void instr_get(
     pss->left = 0;
     pss->right = 0;
   }
+}
+
+/*
+ * instr_errstr function.
+ */
+const char *instr_errstr(int code) {
+  
+  const char *pResult = NULL;
+  
+  switch (code) {
+    case INSTR_ERR_NOTFOUND:
+      pResult = "Can't find external instrument file";
+      break;
+    
+    default:
+      pResult = "Unknown error";
+  }
+  
+  return pResult;
 }
