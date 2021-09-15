@@ -1,16 +1,13 @@
 /*
- * test_beep2.c
- * ============
+ * test_beep.c
+ * ===========
  * 
- * Generate a sound file using the Retro synthesizer.
- * 
- * This is similar to the beep program, except it uses the full Retro
- * instrument module, rather than just generating a simple square wave.
+ * Generate a square wave sound file using the Retro synthesizer.
  * 
  * Syntax
  * ------
  * 
- *   test_beep2 [path] [pitch] [sec] [rate] [amp]
+ *   test_beep [path] [pitch] [sec] [rate] [amp]
  * 
  * [path] is the path to the output WAV file to write.  If it already
  * exists, it will be overwritten.
@@ -36,26 +33,17 @@
  * Compilation
  * -----------
  * 
- * Compile with the following modules:
+ * Compile with the wavwrite and sqwave and ttone modules.
  * 
- *   adsr
- *   instr
- *   sqwave
- *   stereo
- *   wavwrite
- * 
- * The math library may need to be included with -lm
+ * The sqwave module may require the math library to be included with
+ * -lm
  */
 
+#include "sqwave.h"
+#include "wavwrite.h"
+#include "retrodef.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-
-#include "adsr.h"
-#include "stereo.h"
-#include "instr.h"
-#include "retrodef.h"
-#include "wavwrite.h"
 
 /*
  * Local functions
@@ -63,7 +51,7 @@
  */
 
 /* Function prototypes */
-static int soundbeep2(
+static int soundbeep(
     const char    * pPath,
           int32_t   pitch,
           int32_t   sec,
@@ -91,7 +79,7 @@ static int parseInt(const char *pstr, int32_t *pv);
  * 
  *   non-zero if successful, zero if couldn't open output file
  */
-static int soundbeep2(
+static int soundbeep(
     const char    * pPath,
           int32_t   pitch,
           int32_t   sec,
@@ -100,23 +88,16 @@ static int soundbeep2(
   
   int32_t scount = 0;
   int32_t sfull = 0;
-  int32_t dur = 0;
+  int16_t s = 0;
   int status = 1;
   int wavflags = 0;
   int32_t sqrate = 0;
-  ADSR_OBJ *pa = NULL;
-  STEREO_POS sp;
-  STEREO_SAMP ssa;
-  
-  /* Initialize structures */
-  memset(&sp, 0, sizeof(STEREO_POS));
-  memset(&ssa, 0, sizeof(STEREO_SAMP));
   
   /* Check parameters */
   if (pPath == NULL) {
     abort();
   }
-  if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+  if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
     abort();
   }
   if ((sec < 1) || (sec > 60)) {
@@ -146,44 +127,19 @@ static int soundbeep2(
   /* Initialize square wave module */
   sqwave_init((double) amp, sqrate);
   
-  /* Initialize instrument */
-  pa = adsr_alloc(10.0, 10.0, 0.5, 10.0, rate);
-  stereo_setPos(&sp, 0);
-  stereo_flatten();
-  instr_define(0, MAX_FRAC, 0, pa, &sp);
-  
   /* Initialize WAV writer */
   if (!wavwrite_init(pPath, wavflags)) {
     status = 0;
   }
   
-  /* Write one second of silence */
+  /* Write a square wave */
   if (status) {
-    for(scount = 0; scount < rate; scount++) {
-      wavwrite_sample(0, 0);
-    }
-  }
-  
-  /* Write a tone */
-  if (status) {
-    dur = rate * sec;
-    sfull = instr_length(0, dur);
+    sfull = rate * sec;
     for(scount = 0; scount < sfull; scount++) {
-      instr_get(0, scount, dur, pitch, MAX_FRAC, &ssa);
-      wavwrite_sample(ssa.left, ssa.right);
+      s = sqwave_get(pitch, scount);
+      wavwrite_sample(s, s);
     }
   }
-  
-  /* Write one second of silence */
-  if (status) {
-    for(scount = 0; scount < rate; scount++) {
-      wavwrite_sample(0, 0);
-    }
-  }
-  
-  /* Free ADSR object if allocated */
-  adsr_release(pa);
-  pa = NULL;
   
   /* Close down */
   if (status) {
@@ -324,7 +280,7 @@ int main(int argc, char *argv[]) {
     }
   }
   if (pModule == NULL) {
-    pModule = "beep2";
+    pModule = "beep";
   }
   
   /* Verify five parameters in addition to module name */
@@ -374,7 +330,7 @@ int main(int argc, char *argv[]) {
   
   /* Range check numeric parameters */
   if (status) {
-    if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+    if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
       status = 0;
       fprintf(stderr, "%s: Pitch parameter out of range!\n", pModule);
     }
@@ -404,7 +360,7 @@ int main(int argc, char *argv[]) {
   
   /* Call through */
   if (status) {
-    if (!soundbeep2(argv[1], pitch, sec, rate, amp)) {
+    if (!soundbeep(argv[1], pitch, sec, rate, amp)) {
       status = 0;
       fprintf(stderr, "%s: Couldn't open output file!\n", pModule);
     }

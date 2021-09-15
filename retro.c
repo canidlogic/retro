@@ -7,7 +7,13 @@
  * Syntax
  * ------
  * 
- *   retro [output]
+ *   retro ([options])* [output]
+ * 
+ * [options] is an optional sequence of option declarations.  Currently,
+ * the only option is "-L" which must be followed by another parameter
+ * indicating a directory name to prefix to the search path.  Options
+ * are processed left to right, but each "-L" *prefixes* a directory to
+ * the search path.
  * 
  * [output] is the path to the output WAV file to write.  If it already
  * exists, it will be overwritten.
@@ -27,6 +33,8 @@
  * Compile with the following Retro modules:
  * 
  *   adsr
+ *   generator
+ *   genmap
  *   graph
  *   instr
  *   layer
@@ -34,7 +42,11 @@
  *   seq
  *   sqwave
  *   stereo
+ *   ttone
  *   wavwrite
+ * 
+ * Also compile with the os_ module that is appropriate for the target
+ * platform.
  * 
  * Also, compile with libshastina beta 0.9.3 or compatible.
  * 
@@ -49,6 +61,7 @@
 #include "shastina.h"
 
 #include "adsr.h"
+#include "genmap.h"
 #include "graph.h"
 #include "instr.h"
 #include "layer.h"
@@ -57,6 +70,7 @@
 #include "seq.h"
 #include "sqwave.h"
 #include "stereo.h"
+#include "ttone.h"
 #include "wavwrite.h"
 
 /*
@@ -102,9 +116,16 @@
 #define ERR_IRANGE  (33)  /* Invalid intensity range */
 #define ERR_GRAPH   (34)  /* Invalid graph */
 #define ERR_OUTFILE (35)  /* Can't open output file */
+#define ERR_STRPFXN (36)  /* Can't parse numeric string prefix */
 
 #define ERR_SN_MIN  (500) /* Mininum error code used for Shastina */
 #define ERR_SN_MAX  (600) /* Maximum error code used for Shastina */
+
+#define ERR_GENMAP_MIN  (800)   /* Minimum error code for genmap */
+#define ERR_GENMAP_MAX  (899)   /* Maximum error code for genmap */
+
+#define ERR_INSTR_MIN   (900)   /* Minimum error code for instr */
+#define ERR_INSTR_MAX   (999)   /* Maximum error code for instr */
 
 /*
  * Constants
@@ -356,10 +377,11 @@ static void header_config(
 
 static int parseInt(const char *pstr, int32_t *pv);
 static int retro(
-          SNSOURCE * pIn,
-    const char     * pOutPath,
-          int      * per,
-          long     * pln);
+          SNSOURCE *  pIn,
+    const char     *  pOutPath,
+          int      *  per,
+          long     *  pln,
+          char     ** ppExternal);
 static const char *error_string(int code);
 
 /*
@@ -881,7 +903,7 @@ static int op_instr(
 static int op_idup(int32_t iid, int32_t src, int *per) {
   
   int status = 1;
-  
+
   /* Check per and state */
   if ((per == NULL) || (!m_init)) {
     abort();
@@ -1020,13 +1042,13 @@ static int op_field(
     status = 0;
     *per = ERR_BADFRAC;
   }
-  if (status && ((low_pitch < SQWAVE_PITCH_MIN) ||
-                  (low_pitch > SQWAVE_PITCH_MAX))) {
+  if (status && ((low_pitch < PITCH_MIN) ||
+                  (low_pitch > PITCH_MAX))) {
     status = 0;
     *per = ERR_PITCH;
   }
-  if (status && ((high_pitch < SQWAVE_PITCH_MIN) ||
-                  (high_pitch > SQWAVE_PITCH_MAX))) {
+  if (status && ((high_pitch < PITCH_MIN) ||
+                  (high_pitch > PITCH_MAX))) {
     status = 0;
     *per = ERR_PITCH;
   }
@@ -1146,8 +1168,8 @@ static int op_note(
     status = 0;
     *per = ERR_LONGDUR;
   }
-  if (status && ((pitch < SQWAVE_PITCH_MIN) ||
-                  (pitch > SQWAVE_PITCH_MAX))) {
+  if (status && ((pitch < PITCH_MIN) ||
+                  (pitch > PITCH_MAX))) {
     status = 0;
     *per = ERR_PITCH;
   }
@@ -1807,6 +1829,9 @@ static void header_config(
   
   memset(m_group_stack, 0, MAX_GROUP * sizeof(int32_t));
   memset(m_stack, 0, MAX_STACK * sizeof(STACK_REC));
+  
+  /* Notify instr module of rate */
+  instr_setsamp(rate);
 }
 
 /*
@@ -1934,6 +1959,13 @@ static int parseInt(const char *pstr, int32_t *pv) {
  * NULL if not required.  -1 or LONG_MAX is returned if there is no line
  * number associated with the error.
  * 
+ * ppExternal points to a string pointer that will by default be cleared
+ * to NULL.  If a parsing error occurs in an external instrument script,
+ * a dynamic copy of the instrument name will be made and a pointer to
+ * it placed in this variable.  Caller has responsibility for freeing
+ * this if it is allocated.  If this parameter is NULL, it will not be
+ * used.
+ * 
  * Parameters:
  * 
  *   pIn - the input Shastina source to program the synthesizer
@@ -1944,19 +1976,25 @@ static int parseInt(const char *pstr, int32_t *pv) {
  * 
  *   pln - pointer to line number status variable, or NULL
  * 
+ *   ppExternal - pointer to variable to receive external script name,
+ *   or NULL
+ * 
  * Return:
  * 
  *   non-zero if successful, zero if error
  */
 static int retro(
-          SNSOURCE * pIn,
-    const char     * pOutPath,
-          int      * per,
-          long     * pln) {
+          SNSOURCE *  pIn,
+    const char     *  pOutPath,
+          int      *  per,
+          long     *  pln,
+          char     ** ppExternal) {
   
   int status = 1;
   int dummy = 0;
   long dummy_l = 0;
+  long emb_line = 0;
+  const char *pc = NULL;
   SNPARSER *pp = NULL;
   SNENTITY ent;
   
@@ -1973,6 +2011,9 @@ static int retro(
   int meta_cmd = METACMD_NONE;
   
   int32_t v = 0;
+  int err_num = 0;
+  int err_mod = 0;
+  long err_line = 0;
 
   /* Initialize structures and arrays */
   memset(&ent, 0, sizeof(SNENTITY));
@@ -1991,6 +2032,11 @@ static int retro(
     pln = &dummy_l;
   }
   
+  /* If external given, clear to NULL */
+  if (ppExternal != NULL) {
+    *ppExternal = NULL;
+  }
+  
   /* Reset error status */
   *per = ERR_OK;
   *pln = -1;
@@ -2004,7 +2050,8 @@ static int retro(
       snparser_read(pp, &ent, pIn)) {
 
     /* First of all, fail if an unsupported entity type */
-    if ((ent.status != SNENTITY_BEGIN_META) &&
+    if ((ent.status != SNENTITY_STRING) &&
+        (ent.status != SNENTITY_BEGIN_META) &&
         (ent.status != SNENTITY_END_META) &&
         (ent.status != SNENTITY_META_TOKEN) &&
         (ent.status != SNENTITY_NUMERIC) &&
@@ -2093,7 +2140,157 @@ static int retro(
           *per = ERR_NUM;
           *pln = snparser_count(pp);
         }
+      
+      } else if (ent.status == SNENTITY_STRING) {
+        /* String literal -- make sure that string prefix begins with a
+         * decimal digit */
+        if (((ent.pKey)[0] < '0') || ((ent.pKey)[0] > '9')) {
+          status = 0;
+          *per = ERR_ENTITY;
+          *pln = snparser_count(pp);
+        }
         
+        /* Parse the string prefix as an integer, now that we know it is
+         * unsigned */
+        if (status) {
+          if (!parseInt(ent.pKey, &v)) {
+            status = 0;
+            *per = ERR_STRPFXN;
+            *pln = snparser_count(pp);
+          }
+        }
+        
+        /* Check range of string prefix is valid instrument index */
+        if (status) {
+          if ((v < 1) || (v > INSTR_MAXCOUNT)) {
+            status = 0;
+            *per = ERR_INSTR;
+            *pln = snparser_count(pp);
+          }
+        }
+        
+        /* Decrement instrument index */
+        if (status) {
+          v--;
+        }
+        
+        /* If this is an embedded script, figure out a number that
+         * should be added to one-based line numbers internal to the
+         * script to translate them to line numbers in input; otherwise,
+         * if external script, set offset number to zero */
+        if (status && (ent.str_type == SNSTRING_CURLY)) {
+          /* Embedded script, so begin with the current line number,
+           * which is the line the closing curly takes place on */
+          emb_line = snparser_count(pp);
+          
+          /* For every LF character found in the string literal,
+           * decrease the embedded line by one */
+          for(pc = ent.pValue; *pc != 0; pc++) {
+            if (*pc == '\n') {
+              /* We found an LF, so decrease embedded line */
+              if ((emb_line > 1) && (emb_line < LONG_MAX)) {
+                /* Embedded line in range, so decrement */
+                emb_line--;
+              } else {
+                /* Embedded line no longer in range, so set to zero and
+                 * leave loop */
+                emb_line = 0;
+                break;
+              }
+            }
+          }
+          
+          /* Since embedded line numbers are one-indexed, we need to
+           * move the line number back one more so it works correctly as
+           * an offset; set to -1 if not valid */
+          if ((emb_line >= 1) && (emb_line < LONG_MAX)) {
+            emb_line--;
+          } else {
+            emb_line = -1;
+          }
+          
+        } else if (status) {
+          /* Not an embedded script, so offset should be zero */
+          emb_line = 0;
+        }
+        
+        /* Call through to appropriate function */
+        if (status && (ent.str_type == SNSTRING_CURLY)) {
+          /* Curly string means embedded instrument */
+          if (!instr_embedded(
+                  v, ent.pValue, &err_num, &err_mod, &err_line)) {
+            /* Error in embedded script, so first of all modify line
+             * number by offset, or set to zero if not valid */
+            if (emb_line >= 0) {
+              if ((err_line >= 1) &&
+                    (err_line < LONG_MAX - emb_line)) {
+                err_line = err_line + emb_line;
+              } else {
+                err_line = 0;
+              }
+            } else {
+              err_line = 0;
+            }
+            
+            /* Convert error code */
+            if (err_mod == INSTR_ERRMOD_GENMAP) {
+              *per = err_num + ERR_GENMAP_MIN;
+            } else if (err_mod == INSTR_ERRMOD_SHASTINA) {
+              *per = err_num + ERR_SN_MAX;
+            } else if (err_mod == INSTR_ERRMOD_INSTR) {
+              *per = err_num + ERR_INSTR_MIN;
+            } else {
+              /* Unknown error */
+              *per = INT_MAX;
+            }
+            
+            /* Set corrected line number and clear status */
+            *pln = err_line;
+            status = 0;
+          }
+          
+        } else if (status && (ent.str_type == SNSTRING_QUOTED)) {
+          /* Quoted string means external instrument */
+          if (!instr_external(
+                  v, ent.pValue, &err_num, &err_mod, &err_line)) {
+            /* Error in external script, so only minor adjustment needed
+             * to line number */
+            if (err_line == LONG_MAX) {
+              err_line = 0;
+            }
+            
+            /* If external pointer given, we need to make a copy of the
+             * instrument name for error reporting */
+            if (ppExternal != NULL) {
+              *ppExternal = (char *) malloc(strlen(ent.pValue) + 1);
+              if (*ppExternal == NULL) {
+                abort();
+              }
+              strcpy(*ppExternal, ent.pValue);
+            }
+            
+            /* Convert error code */
+            if (err_mod == INSTR_ERRMOD_GENMAP) {
+              *per = err_num + ERR_GENMAP_MIN;
+            } else if (err_mod == INSTR_ERRMOD_SHASTINA) {
+              *per = err_num + ERR_SN_MAX;
+            } else if (err_mod == INSTR_ERRMOD_INSTR) {
+              *per = err_num + ERR_INSTR_MIN;
+            } else {
+              /* Unknown error */
+              *per = INT_MAX;
+            }
+            
+            /* Set line number and clear status */
+            *pln = err_line;
+            status = 0;
+          }
+          
+        } else if (status) {
+          /* Shouldn't happen */
+          abort();
+        }
+      
       } else if (ent.status == SNENTITY_BEGIN_GROUP) {
         /* Begin group */
         if (!begin_group()) {
@@ -2400,6 +2597,13 @@ static const char *error_string(int code) {
   
   if ((code >= ERR_SN_MIN) && (code <= ERR_SN_MAX)) {
     pResult = snerror_str(code - ERR_SN_MAX);
+    
+  } else if ((code >= ERR_GENMAP_MIN) && (code <= ERR_GENMAP_MAX)) {
+    pResult = genmap_errstr(code - ERR_GENMAP_MIN);
+  
+  } else if ((code >= ERR_INSTR_MIN) && (code <= ERR_INSTR_MAX)) {
+    pResult = instr_errstr(code - ERR_INSTR_MIN);
+  
   } else {
   
     switch (code) {
@@ -2548,6 +2752,10 @@ static const char *error_string(int code) {
         pResult = "Can't open output file";
         break;
       
+      case ERR_STRPFXN:
+        pResult = "Can't parse numeric string prefix";
+        break;
+      
       default:
         pResult = "Unknown error";
     }
@@ -2566,8 +2774,10 @@ int main(int argc, char *argv[]) {
   const char *pModule = NULL;
   int status = 1;
   int errnum = 0;
+  int i = 0;
   long errline = 0;
   SNSOURCE *pIn = NULL;
+  char *pExternal = NULL;
   
   /* Get module name */
   if (argc > 0) {
@@ -2583,22 +2793,59 @@ int main(int argc, char *argv[]) {
   
   /* Check argument count */
   if (status) {
-    if (argc != 2) {
+    if (argc < 2) {
       status = 0;
-      fprintf(stderr, "%s: Expecting one argument!\n", pModule);
+      fprintf(stderr, "%s: Expecting argument(s)!\n", pModule);
     }
   }
   
-  /* Verify argument is present */
+  /* Verify arguments are present */
   if (status) {
     if (argv == NULL) {
       abort();
     }
-    if (argv[0] == NULL) {
-      abort();
+    for(i = 0; i < argc; i++) {
+      if (argv[i] == NULL) {
+        abort();
+      }
     }
-    if (argv[1] == NULL) {
-      abort();
+  }
+  
+  /* Interpret any options before the final argument, which is the
+   * output file */
+  if (status) {
+    for(i = 1; i < argc - 1; i++) {
+      /* We only support "-L" options */
+      if (strcmp(argv[i], "-L") != 0) {
+        status = 0;
+        fprintf(stderr, "%s: Unrecognized option: %s\n",
+                  pModule, argv[i]);
+      }
+      
+      /* There must be a parameter to this option */
+      if (status && (i >= argc - 2)) {
+        status = 0;
+        fprintf(stderr, "%s: -L option is missing parameter!\n",
+                  pModule);
+      }
+      
+      /* Add parameter to search path */
+      if (status) {
+        if (!instr_addsearch(argv[i + 1])) {
+          status = 0;
+          fprintf(stderr, "%s: Search path is too long!\n", pModule);
+        }
+      }
+      
+      /* Skip over parameter */
+      if (status) {
+        i++;
+      }
+      
+      /* Leave loop if error */
+      if (!status) {
+        break;
+      }
     }
   }
   
@@ -2609,8 +2856,13 @@ int main(int argc, char *argv[]) {
   
   /* Call through */
   if (status) {
-    if (!retro(pIn, argv[1], &errnum, &errline)) {
-      if ((errline >= 0) && (errline < LONG_MAX)) {
+    if (!retro(pIn, argv[argc - 1], &errnum, &errline, &pExternal)) {
+      if (pExternal != NULL) {
+        /* External script name */
+        fprintf(stderr, "%s: In external instrument %s:\n",
+                  pModule, pExternal);
+      }
+      if ((errline > 0) && (errline < LONG_MAX)) {
         /* Line number to report */
         status = 0;
         fprintf(stderr, "%s: [Line %ld] %s!\n",
@@ -2627,6 +2879,11 @@ int main(int argc, char *argv[]) {
   /* Release source if allocated */
   snsource_free(pIn);
   pIn = NULL;
+  
+  /* Release external path string if allocated */
+  if (pExternal != NULL) {
+    free(pExternal);
+  }
   
   /* Invert status and return */
   if (status) {

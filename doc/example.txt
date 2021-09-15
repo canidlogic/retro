@@ -63,7 +63,8 @@
 #
 512 1 2 derive_layer
 
-# You can define instruments like this:  (Instruments are one-indexed.)
+# You can define legacy instruments like this:  (Instruments are
+# one-indexed.)
 #
 1024        # Maximum intensity 1024/1024
 256         # Minimum intensity 256/1024
@@ -73,15 +74,56 @@
 10          # Release time in milliseconds
   1 instr   # Define instrument 1
 
-# You can duplicate the definition of an instrument.  The ADSR envelope
-# is shared between the two instruments:
+# Legacy instruments only support square waves with an ADSR envelope.
+# To define non-legacy instruments, use a string literal with a prefix
+# that gives the instrument number as a decimal.  If you enclose the
+# literal in {} braces, then the actual string literal is the
+# instrument definition.  If you enclose the literal in "" braces, then
+# the string literal is an instrument "call number" that Retro uses to
+# look up the data in an external file.
 #
-1 2 instr_dup # Duplicate instrument 1 as instrument 2
+# See Instruments.md for further information.  See genmap.txt for the
+# format of FM instrument definitions.
+#
+# Example of embedded instrument definition for an FM instrument:
+#
+2{
+  %fm;
+  
+  25 0 1.0 250.0 adsr @ADSR_EXAMPLE
+  
+  [
+    "fop", "sine",
+    "freq_mul", 5.9,
+    "adsr", =ADSR_EXAMPLE
+  ] operator 0.01 scale @EXAMPLE_OP_1
+  
+  [
+    "fop", "sine",
+    "adsr", =ADSR_EXAMPLE,
+    "fm", =EXAMPLE_OP_1
+  ] operator @EXAMPLE_OP_2
+  
+  =EXAMPLE_OP_2 20000.0 scale @EXAMPLE_SCALE
+  [=EXAMPLE_SCALE] additive @EXAMPLE_MIX
+  =EXAMPLE_MIX
+  
+  |;
+}
 
-# You can change instrument definitions.  Change max/min intensities
-# like this:
+# You can duplicate the definition of an instrument.  Object references
+# such as to ADSR envelopes and FM generator maps are shared between the
+# two instruments:
 #
-512 256 2 instr_maxmin  # Change max/min on instrument 2
+2 3 instr_dup # Duplicate instrument 2 as instrument 3
+
+# You can change instrument definitions.  Legacy instruments define
+# their initial values for max/min intensities, while embedded and
+# external instruments have a default 1024/1024 max and 512/1024 min.
+# You can change the max/min intensities of an existing instrument like
+# this:
+#
+512 256 3 instr_maxmin  # Change max/min on instrument 3
 
 # All instruments have stereo position in center when they are first
 # defined.  To get other stereo positions, you must change the stereo
@@ -90,9 +132,9 @@
 # If %nostereo; was specified as a configuration command, then stereo
 # positioning will be ignored and everything will be single-channel.
 
--512 0 1024 12 1 instr_field
+-512 0 1024 12 3 instr_field
 # Set stereo field (512/1024) left to (1024/1024) right from middle C
-# to one octave above on instrument 1
+# to one octave above on instrument 3
 
 0 2 instr_stereo
 # Set constant center stereo position on instrument 2
@@ -110,8 +152,8 @@
 # It is also acceptable to define instruments and layers after the notes
 # have been defined.
 
-0 48000 9 1 2 n
-# Define note @ t=0, for 48000 samples, A-440, instrument 1, layer 2
+0 48000 9 3 2 n
+# Define note @ t=0, for 48000 samples, A-440, instrument 3, layer 2
 
 # The full synthesizer state at the end of the file is used to generate
 # the resulting output.

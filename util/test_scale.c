@@ -1,24 +1,20 @@
 /*
- * test_beep.c
- * ===========
+ * test_scale.c
+ * ============
  * 
- * Generate a square wave sound file using the Retro synthesizer.
+ * Generate a full chromatic scale to test the square wave module.
+ * 
+ * The output will cover every pitch of the 88-key keyboard from the
+ * lowest pitch to the highest pitch, with each pitch lasting a third of
+ * a second.  There will be one second of silence before and afterwards.
  * 
  * Syntax
  * ------
  * 
- *   test_beep [path] [pitch] [sec] [rate] [amp]
+ *   test_scale [path] [rate] [amp]
  * 
  * [path] is the path to the output WAV file to write.  If it already
  * exists, it will be overwritten.
- * 
- * [pitch] is the pitch of the square wave.  Middle C is pitch zero, and
- * all other pitches are given in semitones away from middle C.  For
- * example, -1 is one semitone below middle C and 2 is two semitones
- * above middle C.  The range is [-39, 48], which is the full range of
- * the 88-key keyboard.
- * 
- * [sec] is the number of seconds to write.  This must be in range 1-60.
  * 
  * [rate] is the sampling rate to use.  This must either be 44100 or
  * 48000.
@@ -33,7 +29,7 @@
  * Compilation
  * -----------
  * 
- * Compile with the wavwrite and sqwave modules.
+ * Compile with the wavwrite and sqwave and ttone modules.
  * 
  * The sqwave module may require the math library to be included with
  * -lm
@@ -42,6 +38,7 @@
 #include "sqwave.h"
 #include "wavwrite.h"
 #include "retrodef.h"
+#include "ttone.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -51,12 +48,7 @@
  */
 
 /* Function prototypes */
-static int soundbeep(
-    const char    * pPath,
-          int32_t   pitch,
-          int32_t   sec,
-          int32_t   rate,
-          int32_t   amp);
+static int fullscale(const char *pPath, int32_t rate, int32_t amp);
 static int parseInt(const char *pstr, int32_t *pv);
 
 /*
@@ -67,10 +59,6 @@ static int parseInt(const char *pstr, int32_t *pv);
  * 
  *   pPath - the output WAV path
  * 
- *   pitch - the pitch
- * 
- *   sec - the number of seconds
- * 
  *   rate - the sampling rate
  * 
  *   amp - the amplitude
@@ -79,15 +67,11 @@ static int parseInt(const char *pstr, int32_t *pv);
  * 
  *   non-zero if successful, zero if couldn't open output file
  */
-static int soundbeep(
-    const char    * pPath,
-          int32_t   pitch,
-          int32_t   sec,
-          int32_t   rate,
-          int32_t   amp) {
+static int fullscale(const char *pPath, int32_t rate, int32_t amp) {
   
-  int32_t scount = 0;
-  int32_t sfull = 0;
+  int32_t p = 0;
+  int32_t i = 0;
+  int32_t plen = 0;
   int16_t s = 0;
   int status = 1;
   int wavflags = 0;
@@ -95,12 +79,6 @@ static int soundbeep(
   
   /* Check parameters */
   if (pPath == NULL) {
-    abort();
-  }
-  if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
-    abort();
-  }
-  if ((sec < 1) || (sec > 60)) {
     abort();
   }
   if ((rate != RATE_DVD) && (rate != RATE_CD)) {
@@ -132,12 +110,32 @@ static int soundbeep(
     status = 0;
   }
   
-  /* Write a square wave */
+  /* Write the scale */
   if (status) {
-    sfull = rate * sec;
-    for(scount = 0; scount < sfull; scount++) {
-      s = sqwave_get(pitch, scount);
-      wavwrite_sample(s, s);
+    
+    /* Write one second of silence beforehand */
+    for(i = 0; i < rate; i++) {
+      wavwrite_sample(0, 0);
+    }
+    
+    /* Compute the length in samples of each pitch */
+    plen = rate / 3;
+    
+    /* Write each of the pitches */
+    for(p = PITCH_MIN; p <= PITCH_MAX; p++) {
+      
+      /* Write the current pitch */
+      for(i = 0; i < plen; i++) {
+        
+        /* Get the current sample and write it */
+        s = sqwave_get(p, i);
+        wavwrite_sample(s, s);
+      }
+    }
+    
+    /* Write one second of silence afterwards */
+    for(i = 0; i < rate; i++) {
+      wavwrite_sample(0, 0);
     }
   }
   
@@ -266,8 +264,6 @@ int main(int argc, char *argv[]) {
   int status = 1;
   int x = 0;
   
-  int32_t pitch = 0;
-  int32_t sec = 0;
   int32_t rate = 0;
   int32_t amp = 0;
   
@@ -280,13 +276,13 @@ int main(int argc, char *argv[]) {
     }
   }
   if (pModule == NULL) {
-    pModule = "beep";
+    pModule = "scale";
   }
   
-  /* Verify five parameters in addition to module name */
-  if (argc != 6) {
+  /* Verify three parameters in addition to module name */
+  if (argc != 4) {
     status = 0;
-    fprintf(stderr, "%s: Expecting five parameters!\n", pModule);
+    fprintf(stderr, "%s: Expecting three parameters!\n", pModule);
   }
   
   /* Check parameters are present */
@@ -300,28 +296,14 @@ int main(int argc, char *argv[]) {
   
   /* Parse numeric parameters */
   if (status) {
-    if (!parseInt(argv[2], &pitch)) {
-      status = 0;
-      fprintf(stderr, "%s: Can't parse pitch parameter!\n", pModule);
-    }
-  }
-  
-  if (status) {
-    if (!parseInt(argv[3], &sec)) {
-      status = 0;
-      fprintf(stderr, "%s: Can't parse seconds parameter!\n", pModule);
-    }
-  }
-  
-  if (status) {
-    if (!parseInt(argv[4], &rate)) {
+    if (!parseInt(argv[2], &rate)) {
       status = 0;
       fprintf(stderr, "%s: Can't parse rate parameter!\n", pModule);
     }
   }
   
   if (status) {
-    if (!parseInt(argv[5], &amp)) {
+    if (!parseInt(argv[3], &amp)) {
       status = 0;
       fprintf(stderr, "%s: Can't parse amplitude parameter!\n",
           pModule);
@@ -329,20 +311,6 @@ int main(int argc, char *argv[]) {
   }
   
   /* Range check numeric parameters */
-  if (status) {
-    if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
-      status = 0;
-      fprintf(stderr, "%s: Pitch parameter out of range!\n", pModule);
-    }
-  }
-  
-  if (status) {
-    if ((sec < 1) || (sec > 60)) {
-      status = 0;
-      fprintf(stderr, "%s: Seconds parameter out of range!\n", pModule);
-    }
-  }
-  
   if (status) {
     if ((rate != RATE_DVD) && (rate != RATE_CD)) {
       status = 0;
@@ -360,7 +328,7 @@ int main(int argc, char *argv[]) {
   
   /* Call through */
   if (status) {
-    if (!soundbeep(argv[1], pitch, sec, rate, amp)) {
+    if (!fullscale(argv[1], rate, amp)) {
       status = 0;
       fprintf(stderr, "%s: Couldn't open output file!\n", pModule);
     }

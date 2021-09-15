@@ -54,7 +54,7 @@ typedef struct {
   /*
    * The pitch in semitones from middle C.
    * 
-   * Must be in range [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+   * Must be in range [PITCH_MIN, PITCH_MAX].
    */
   int16_t pitch;
   
@@ -90,6 +90,12 @@ struct SEQ_EVENT_TAG {
    * The greatest t offset of the envelope for this event.
    */
   int32_t max_t;
+  
+  /*
+   * Dynamically allocated instance data for the note being rendered, or
+   * NULL if no such instance data.
+   */
+  void *pod;
   
   /*
    * Pointer to the previous event in the current event list, or NULL if
@@ -210,7 +216,7 @@ int seq_note(
   if (dur > INT32_MAX - t) {
     abort();
   }
-  if ((pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+  if ((pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
     abort();
   }
   if ((instr < 0) || (instr >= INSTR_MAXCOUNT)) {
@@ -387,6 +393,11 @@ void seq_play(void) {
           (pse->pNext)->pPrev = pse->pPrev;
         }
         
+        if (pse->pod != NULL) {
+          free(pse->pod);
+          pse->pod = NULL;
+        }
+        
         psr = pse;
         pse = pse->pNext;
         free(psr);
@@ -417,11 +428,18 @@ void seq_play(void) {
         }
         pl = pse;
         
+        /* Get instance data for the note, if required */
+        pse->pod = instr_prepare(
+                            (m_seq_buf[x]).instr,
+                            (m_seq_buf[x]).dur,
+                            (m_seq_buf[x]).pitch);
+        
         /* Compute the max_t */
         mt = ((int64_t) (m_seq_buf[x]).t) - 1 +
               ((int64_t) instr_length(
                             (m_seq_buf[x]).instr,
-                            (m_seq_buf[x]).dur
+                            (m_seq_buf[x]).dur,
+                            pse->pod
               ));
         if (mt > INT32_MAX) {
           mt = INT32_MAX;
@@ -449,7 +467,8 @@ void seq_play(void) {
       amp = layer_get(pn->layer, t);
       
       /* Compute the stereo sample */
-      instr_get(pn->instr, t - pn->t, pn->dur, pn->pitch, amp, &ssp);
+      instr_get(
+        pn->instr, t - pn->t, pn->dur, pn->pitch, amp, &ssp, pse->pod);
       
       /* Mix the stereo sample in */
       mt = ((int64_t) samp_left) + ((int64_t) ssp.left);

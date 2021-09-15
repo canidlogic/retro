@@ -1,0 +1,190 @@
+# Example generator map Shastina file
+#
+# FM generator maps begin with the following metacommand:
+
+%fm;
+
+# The interpreter for generator map scripts supports the following data
+# types:
+#
+#   (1) undefined/null
+#   (2) 32-bit signed integer
+#   (3) double-precision floating-point
+#   (4) atom
+#   (5) ADSR object reference
+#   (6) generator object reference
+
+# To push the special undefined/null type on the top of the stack, use
+# the special "undef" operator.
+
+# To push integer and double-precision floating-point values on top of
+# the stack, simply include their value as a Shastina numeric literal.
+# 
+# Numeric literals must have the following format:
+#
+#   1. Optional sign, either "+" or "-"
+#   2. Sequence of zero or more decimal digits
+#   3. Optional:
+#      a. "."
+#      b. Sequence of zero or more decimal digits
+#   4. Optional:
+#      a. "e" or "E"
+#      b. Optional "+" or "-"
+#      c. Sequence of one or more decimal digits
+#
+# There must also be at least one decimal digit somewhere in (2) or (3).
+#
+# Floating-point is distinguished from integer by having either the
+# optional "." portion or the optional "e"/"E" portion (or both).
+#
+# Floating-point is parsed using the standard library strtod() function.
+# The result must be a finite floating-point value.
+#
+# Integers may be used anywhere that floating-point is required, with
+# the integer value automatically promoted to floating-point.
+#
+# Example integer and double-precision literals:
+#
+# 25 -32 125.0 -52.3 1.25e-3
+
+# The following arithmetic operators are available that take two
+# parameters, with the top of the stack being the second parameter and
+# the value under that being the first parameter, and then pushes the
+# result back onto the stack:
+#
+#   add
+#   sub
+#   mul
+#   div
+#
+# All of these are floating-point operations and automatically promote
+# any integers to floats.
+
+# Atoms are special unique integer constant values.  Atoms can NOT be
+# created using integer literals.  Instead, you must use special
+# case-sensitive string literals surrounded by double-quotes that have
+# the effect of pushing the special unique integer constant value on top
+# of the interpreter stack.
+
+# ADSR envelopes are objects matching ADSR_OBJ in the adsr module of
+# Retro.  Unlike the numeric and atom types, ADSR envelopes are tracked
+# by reference and reference counting is used to determine when they are
+# freed.
+#
+# To create an ADSR envelope object, pass the Attack Decay Sustain and
+# Release values as floating-point.  ADR values are millisecond values
+# and S is a multiplier in range [0.0, 1.0].  See the adsr_alloc()
+# function in the adsr module of Retro for further information.
+#
+# Here is an example, which creates a new ADSR object and assigns it to
+# the constant ADSR_EXAMPLE:
+
+25 0 1.0 250.0 adsr @ADSR_EXAMPLE
+
+# Generators are objects matching GENERATOR in the generator module of
+# Retro.  Similar to ADSR envelopes, they are a reference-counted object
+# reference type.
+#
+# There are three different ways to construct generator objects,
+# corresponding to the three types of generators -- additive, scaling,
+# and operators.
+#
+# To construct an operator generator, use the "operator" operation.
+# When this operation is called, the top of the stack must be an integer
+# value that counts the number of parameters (not including the count on
+# top of the stack).  You can generate this count automatically by using
+# the Shastina array feature.
+#
+# The count of parameters to "operator" must be a multiple of two.
+# Parameters come in pairs, where the first parameter of each pair is an
+# atom that identifies the operator parameter that is being set and the
+# second parameter in each pair is the value to set for that parameter.
+# Parameters may be declared in any order, but each parameter can be
+# declared at most once.
+#
+# The parameters for "operator" are the same as the parameters to the
+# generator_op() function in the generator module of Retro, with the
+# following exceptions:
+#
+#   1. samp_rate is not included; this is defined elsewhere
+#   2. pAmp is renamed to "adsr"
+#   3. pFM is renamed to "fm"
+#   4. pAM is renamed to "am"
+# 
+# All operator parameters are floating-point values, with the following
+# exceptions:
+#
+#   A. "fop" must have one of the following atom values:
+#      - "sine"
+#      - "square"
+#      - "triangle"
+#      - "sawtooth"
+#      - "noise"
+#   B. "adsr" must be an ADSR object reference
+#   C. "fm" must be a generator object reference or undef
+#   D. "am" must be a generator object reference or undef
+#
+# The following default values are used for operator parameters that are
+# not defined in the parameter list:
+#
+#   freq_mul = 1.0
+#   freq_boost = 0.0
+#   fm = undef
+#   am = undef
+#
+# The "fop" and "adsr" parameters are required.
+#
+# Example operator constructors:
+
+[
+  "fop", "sine",
+  "freq_mul", 5.9,
+  "adsr", =ADSR_EXAMPLE
+] operator 0.01 scale @EXAMPLE_OP_1
+
+[
+  "fop", "sine",
+  "adsr", =ADSR_EXAMPLE,
+  "fm", =EXAMPLE_OP_1
+] operator @EXAMPLE_OP_2
+
+# Scaling generator objects are constructed by providing a generator
+# that they modify and a floating-point value that is multiplied to all
+# generated samples:
+
+=EXAMPLE_OP_2 20000.0 scale @EXAMPLE_SCALE
+
+# There is also a "clip" generator with the same syntax.  The
+# floating-point value in this case must be zero or greater.  If the
+# absolute value of a sample from the underlying generator exceeds this
+# level, it is clipped and held to this maximum level.  When combined
+# with scaling, this can be used for overdrive effects.
+
+# Additive generator objects are constructed by providing an array of
+# one or more generator object references that indicate the generators
+# to mix together by sample addition.
+#
+# The value on top of the interpreter stack must be an integer that
+# counts the number of generator objects.  This integer can be generated
+# automatically by using the Shastina array facility.
+#
+# Below the count is the array of generator object references.
+#
+# Example additive generator constructor (with just a single generator
+# here):
+
+[=EXAMPLE_SCALE] additive @EXAMPLE_MIX
+
+# At the end of interpretation, there must be a single generator object
+# reference on top of the interpreter stack, which is the root object of
+# the generator network:
+
+=EXAMPLE_MIX
+
+# All Shastina entity types are supported, except for metacommands.
+# Nothing is allowed but whitespace and blank lines after the |; token
+# that ends the generator map.  (For generator maps embedded into string
+# literals, this means nothing after |; to the end of the string
+# literal.)
+
+|;

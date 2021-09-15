@@ -9,6 +9,7 @@
 
 #include "retrodef.h"
 #include "sqwave.h"
+#include "ttone.h"
 
 /*
  * The STEREO_POS structure.
@@ -35,9 +36,9 @@ typedef struct {
    * 
    * For constant stereo positions, low_pitch equals high_pitch.
    * 
-   * The range is [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].  For stereo
-   * fields, low_pitch must be less than high_pitch.  For constant
-   * stereo positions, low_pitch must equal high_pitch.
+   * The range is [PITCH_MIN, PITCH_MAX].  For stereo fields, low_pitch
+   * must be less than high_pitch.  For constant stereo positions,
+   * low_pitch must equal high_pitch.
    */
   int16_t low_pitch;
   
@@ -58,9 +59,9 @@ typedef struct {
    * 
    * For constant stereo positions, high_pitch equals low_pitch.
    * 
-   * The range is [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].  For stereo
-   * fields, low_pitch must be less than high_pitch.  For constant
-   * stereo positions, low_pitch must equal high_pitch.
+   * The range is [PITCH_MIN, PITCH_MAX].  For stereo fields, low_pitch
+   * must be less than high_pitch.  For constant stereo positions,
+   * low_pitch must equal high_pitch.
    */
   int16_t high_pitch;
   
@@ -101,8 +102,7 @@ void stereo_flatten(void);
  * s is the input sample.
  * 
  * pitch is the pitch being performed, used for computing position
- * within stereo fields.  It must be in range
- * [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+ * within stereo fields.  It must be in range [PITCH_MIN, PITCH_MAX].
  * 
  * psp is the properly initialized stereo position structure.
  * 
@@ -134,8 +134,8 @@ void stereo_image(
  * psp is the stereo position structure to initialize.
  * 
  * low_pitch and high_pitch are the boundary pitches of the field.  Both
- * must be in range [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].  Furthermore,
- * low_pitch must be less than high_pitch.
+ * must be in range [PITCH_MIN, PITCH_MAX].  Furthermore, low_pitch must
+ * be less than high_pitch.
  * 
  * low_pos and high_pos are the stereo positions associated with
  * low_pitch and high_pitch, respectively.  If low_pos and high_pos are

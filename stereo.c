@@ -119,7 +119,7 @@ void stereo_image(
   
   /* Check parameters */
   if ((pss == NULL) || (psp == NULL) ||
-      (pitch < SQWAVE_PITCH_MIN) || (pitch > SQWAVE_PITCH_MAX)) {
+      (pitch < PITCH_MIN) || (pitch > PITCH_MAX)) {
     abort();
   }
   
@@ -180,10 +180,10 @@ void stereo_setField(
   if ((psp == NULL) ||
       (low_pos < -MAX_FRAC) || (low_pos > MAX_FRAC) ||
       (high_pos < -MAX_FRAC) || (high_pos > MAX_FRAC) ||
-      (low_pitch < SQWAVE_PITCH_MIN) ||
-      (low_pitch > SQWAVE_PITCH_MAX) ||
-      (high_pitch < SQWAVE_PITCH_MIN) ||
-      (high_pitch > SQWAVE_PITCH_MAX) ||
+      (low_pitch < PITCH_MIN) ||
+      (low_pitch > PITCH_MAX) ||
+      (high_pitch < PITCH_MIN) ||
+      (high_pitch > PITCH_MAX) ||
       (high_pitch <= low_pitch)) {
     abort();
   }

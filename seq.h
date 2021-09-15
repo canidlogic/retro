@@ -11,6 +11,7 @@
 #include "instr.h"
 #include "layer.h"
 #include "sqwave.h"
+#include "ttone.h"
 
 /*
  * Add a note to the sequencer.
@@ -29,7 +30,7 @@
  * pitch is the pitch of the note, in semitones from middle C.  That is,
  * a pitch of zero is middle C, -1 is one semitone below middle C, 2 is
  * two semitones above middle C, and so forth.  The range of the pitch
- * must be in [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+ * must be in [PITCH_MIN, PITCH_MAX].
  * 
  * instr is the instrument index to use to perform the note.  Note that
  * sequencing doesn't actually start when the note is defined, so the

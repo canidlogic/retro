@@ -9,25 +9,19 @@
  * Compilation
  * ===========
  * 
+ * Requires ttone.
+ * 
  * May require the math library to be included (-lm).
  */
 
 #include "retrodef.h"
+#include "ttone.h"
 
 /*
  * The range of quantization amplitudes for the initialization function.
  */
 #define SQWAVE_AMP_MIN (16.0)
 #define SQWAVE_AMP_MAX (32000.0)
-
-/*
- * The minimum and maximum pitches that may be requested.
- * 
- * This represents the full 88-key keyboard, with middle C at pitch
- * zero.
- */
-#define SQWAVE_PITCH_MIN (-39)
-#define SQWAVE_PITCH_MAX (48)
 
 /*
  * Initialize the square wave module.
@@ -68,7 +62,7 @@ void sqwave_init(double amp, int32_t samprate);
  * pitch is the pitch of the square wave.  A value of zero is middle C,
  * a value of -1 is one semitone below middle C, a value of +1 is one
  * semitone above middle C, and so forth.  The full range is the 88-key
- * piano keyboard, defined by [SQWAVE_PITCH_MIN, SQWAVE_PITCH_MAX].
+ * piano keyboard, defined by [PITCH_MIN, PITCH_MAX].
  * 
  * t is the sample offset within the wave to return.  t must be zero or
  * greater.  Each square wave sample is automatically looped so that all
