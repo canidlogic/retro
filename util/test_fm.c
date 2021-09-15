@@ -1,13 +1,13 @@
 /*
- * test_beep3.c
- * ============
+ * test_fm.c
+ * =========
  * 
  * Generate a sound using the Retro synthesizer FM synthesis.
  * 
  * Syntax
  * ------
  * 
- *   test_beep3 [path] [freq] [msec] [rate] [amp] [genmap]
+ *   test_fm [path] [freq] [msec] [rate] [amp] [genmap]
  * 
  * [path] is the path to the output WAV file to write.  If it already
  * exists, it will be overwritten.
@@ -440,7 +440,7 @@ int main(int argc, char *argv[]) {
     }
   }
   if (pModule == NULL) {
-    pModule = "beep3";
+    pModule = "test_fm";
   }
   
   /* Verify six parameters in addition to module name */
