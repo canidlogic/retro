@@ -147,7 +147,7 @@ void instr_define(
  * pText is a nul-terminated string that contains the whole script for
  * defining the instrument.
  * 
- * The minimum intensity will be set to zero and the maximum intensity
+ * The minimum intensity will be set to half and the maximum intensity
  * will be set to maximum possible value.  The stereo position will be
  * set to center.
  * 
