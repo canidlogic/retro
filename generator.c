@@ -313,10 +313,10 @@ static double f_sine(double w) {
 static double f_noise(void) {
   
   double result = 0.0;
-  
+
   /* Generate random value in range [0.0, 2.0] */
   result = 2.0 * (((double) rand()) / ((double) RAND_MAX));
-  
+
   /* Move result to range [-1.0, 1.0] */
   return (result - 1.0);
 }
@@ -398,7 +398,7 @@ static double gen_scale(
   
   /* Multiply by scaling value */
   result = result * pc->scale;
-  
+
   /* Return scaled result */
   return result;
 }
@@ -597,7 +597,7 @@ static double gen_op(
       
       /* Result is current */
       result = pod->current;
-    
+
     } else {
       /* Frequency limit breached or modulation and feedback drove
        * frequency to zero or negative or numeric error computing the
