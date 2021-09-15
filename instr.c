@@ -422,7 +422,7 @@ static int instr_isclear(const INSTR_REG *pr) {
  * pIn is a Shastina source that contains the whole script for defining
  * the instrument.  It must support multipass.
  * 
- * The minimum intensity will be set to zero and the maximum intensity
+ * The minimum intensity will be set to half and the maximum intensity
  * will be set to maximum possible value.  The stereo position will be
  * set to center.
  * 
@@ -502,7 +502,7 @@ static int instr_load(
     pr = instr_ptr(i);
    
     /* Setup default intensity and stereo position */
-    pr->i_min = 0;
+    pr->i_min = (MAX_FRAC / 2);
     pr->i_max = MAX_FRAC;
     stereo_setPos(&(pr->sp), 0);
     
