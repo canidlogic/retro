@@ -119,8 +119,8 @@
 
 # You can change instrument definitions.  Legacy instruments define
 # their initial values for max/min intensities, while embedded and
-# external instruments have a default 1024/1024 max and 0/1024 min.  You
-# can change the max/min intensities of an existing instrument like
+# external instruments have a default 1024/1024 max and 512/1024 min.
+# You can change the max/min intensities of an existing instrument like
 # this:
 #
 512 256 3 instr_maxmin  # Change max/min on instrument 3
