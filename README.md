@@ -71,6 +71,10 @@ The above will only work after the Shastina sources have been copied into this d
 
 ## Releases
 
+### Beta 0.2.1
+
+Optimized the FM generator module so that it uses a sine wave lookup table instead of directly computing the sine function each sample.  Real-world tests indicate a substantial performance boost by doing this, without any change in audio quality.  Also optimized main retro module so that it only initializes the square wave module if it is actually needed.  Clarified the documentation about the `%sqamp` configuration command.  Finally, adjusted documentation to indicate that square wave instruments are not deprecated, but rather are a separate instrument class from the FM module.
+
 ### Beta 0.2.0
 
 Added a modular instrument definition system that supports FM synthesis.  This is a major overhaul, and yet it is still backwards compatible with the previous betas.  Retro synthesis scripts designed for previous betas should still run equivalently on this beta.
