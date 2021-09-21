@@ -229,6 +229,12 @@ typedef struct {
  */
 
 /*
+ * Flag that is set on any call to the "instr" to indicate that the
+ * square wave module will need to be initialized.
+ */
+static int m_use_sqwave = 0;
+
+/*
  * Flag indicating whether module has been initialized with the
  * header_config() function.
  */
@@ -430,8 +436,11 @@ static int synthesize(const char *pOutPath) {
     wavflags = wavflags | WAVWRITE_INIT_STEREO;
   }
   
-  /* Initialize square wave module */
-  sqwave_init(SQWAVE_AMP_INIT, sqrate);
+  /* Initialize square wave module, but only if at least one square wave
+   * instrument was defined */
+  if (m_use_sqwave) {
+    sqwave_init(SQWAVE_AMP_INIT, sqrate);
+  }
   
   /* Flatten stereo if requested */
   if (m_nostereo) {
@@ -861,6 +870,12 @@ static int op_instr(
   if (status && (release < 0)) {
     status = 0;
     *per = ERR_BADDUR;
+  }
+  
+  /* Set the square wave flag so that the square wave module will be
+   * initialized */
+  if (status) {
+    m_use_sqwave = 1;
   }
   
   /* Call through */
