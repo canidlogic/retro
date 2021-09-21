@@ -23,6 +23,12 @@
 
 # Configuration command establishing the output amplitude.
 #
+# The name of this configuration command is a misnomer because it
+# doesn't actually have anything to do with the square wave module.  The
+# square wave module, if needed, is initialized with a constant value
+# that is unrelated to this value.  This value is used for the output
+# amplitude even if no square waves are used.
+#
 # This must be in range 1-32767.
 #
 # This configuration command is required.
@@ -63,7 +69,7 @@
 #
 512 1 2 derive_layer
 
-# You can define legacy instruments like this:  (Instruments are
+# You can define square wave instruments like this:  (Instruments are
 # one-indexed.)
 #
 1024        # Maximum intensity 1024/1024
@@ -74,10 +80,10 @@
 10          # Release time in milliseconds
   1 instr   # Define instrument 1
 
-# Legacy instruments only support square waves with an ADSR envelope.
-# To define non-legacy instruments, use a string literal with a prefix
-# that gives the instrument number as a decimal.  If you enclose the
-# literal in {} braces, then the actual string literal is the
+# Square wave instruments support square waves with an ADSR envelope.
+# To define other kinds of instruments, use a string literal with a
+# prefix that gives the instrument number as a decimal.  If you enclose
+# the literal in {} braces, then the actual string literal is the
 # instrument definition.  If you enclose the literal in "" braces, then
 # the string literal is an instrument "call number" that Retro uses to
 # look up the data in an external file.
