@@ -2,15 +2,15 @@
 
 Retro instrument definitions may be either embedded in the synthesizer script or held in external files.  The option to hold instrument definitions in external files allows for easy sharing of instrument definitions across multiple projects.
 
-## Legacy instrument definitions
+## Square wave instrument definitions
 
-Legacy instrument definitions are always embedded within the synthesizer script.  These are the instrument definitions that were used with the original beta 0.1.0 version of Retro, and were the only instruments available in that first version.
+Square wave instrument definitions (also sometimes called "legacy instrument definitions") are always embedded within the synthesizer script.  These are the instrument definitions that were used with the original beta 0.1.0 version of Retro, and were the only instruments available in that first version.
 
-Legacy instrument definitions use the `instr` operation in the synthesizer script, as demonstrated in the `example.txt` synthesis script.  Legacy instrument definitions are only able to create square wave instruments, which were the only kind of instrument available in the original beta 0.1.0 version of Retro.
+Square wave instrument definitions use the `instr` operation in the synthesizer script, as demonstrated in the `example.txt` synthesis script.
 
 ## Embedded instrument definitions
 
-Embedded instrument definitions are the modern way to embed instruments within synthesizer scripts.  Embedded instrument definitions are able to create any kind of instrument, including square wave instruments, so they can be used entirely in place of legacy instrument definitions.
+Embedded instrument definitions are the modern way to embed instruments within synthesizer scripts.  Embedded instrument definitions are able to create any kind of instrument, except for square wave instruments.
 
 To create an embedded instrument definition, use a Shastina string literal with curly braces `{}` and an unsigned numeric decimal prefix identifying the instrument number, which must be one or greater.  The string embedded within the string literal will be interpreted as a separate Shastina script that defines the instrument, and the instrument will then be placed in the indicated instrument register number, overwriting anything that is currently there.
 
