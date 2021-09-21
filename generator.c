@@ -13,6 +13,23 @@
 #include <string.h>
 
 /*
+ * Constants
+ * ---------
+ */
+
+/*
+ * The number of samples in the sine wave table.
+ */
+#define SINE_TABLE_COUNT (1024)
+
+/*
+ * The amplitude of the sine wave in the sine wave table.
+ * 
+ * This must be greater than zero and within signed 16-bit range.
+ */
+#define SINE_TABLE_AMP (16384) 
+
+/*
  * Type declarations
  * -----------------
  */
@@ -202,6 +219,20 @@ typedef struct {
 } OP_CLASS;
 
 /*
+ * Local data
+ * ----------
+ */
+
+/*
+ * The sine wave table.
+ * 
+ * Use f_sine() to compute sine wave according to this table.  This will
+ * also initialize the table if not already initialized.
+ */
+static int m_sine_table_init = 0;
+static int16_t m_sine_table[SINE_TABLE_COUNT];
+
+/*
  * Local functions
  * ---------------
  */
@@ -273,11 +304,13 @@ static void free_op(void *pCustom);
  * w values greater than one are set to one.  Non-finite input is set to
  * value of zero.
  * 
- * This function always computes the pure sine function at the given w
- * location on the wave.  Sine waves do not have complications involving
- * harmonics and the Nyquist limit, unlike the other wave forms.  It is
- * assumed that the client has already checked that the frequency of the
- * sine wave is below the Nyquist limit before calling this function.
+ * This function always computes the sine function at the given w
+ * location on the wave, using a wave table that is automatically
+ * generated on the first call to this function.  Sine waves do not have
+ * complications involving harmonics and the Nyquist limit, unlike the
+ * other wave forms.  It is assumed that the client has already checked
+ * that the frequency of the sine wave is below the Nyquist limit before
+ * calling this function.
  * 
  * Parameters:
  * 
@@ -289,18 +322,86 @@ static void free_op(void *pCustom);
  */
 static double f_sine(double w) {
   
+  int32_t x = 0;
+  double base = 0.0;
+  double r = 0.0;
+  double sv = 0.0;
+  int32_t iv = 0;
+  
+  /* Generate sine wave table if not already initialized */
+  if (!m_sine_table_init) {
+    /* Clear everything to zero first */
+    memset(
+      m_sine_table,
+      0,
+      ((size_t) SINE_TABLE_COUNT) * sizeof(int16_t));
+    
+    /* Generate each entry */
+    for(x = 0; x < SINE_TABLE_COUNT; x++) {
+      
+      /* Compute floating-point value of sine */
+      sv = sin(
+            (((double) x) / ((double) SINE_TABLE_COUNT)) * 2.0 * M_PI);
+      
+      /* Adjust amplitude for integer range */
+      sv *= ((double) SINE_TABLE_AMP);
+      
+      /* Check that finite */
+      if (!isfinite(sv)) {
+        abort();
+      }
+      
+      /* Get integer value */
+      iv = (int32_t) floor(sv);
+      
+      /* Check range */
+      if ((iv < -(SINE_TABLE_AMP)) || (iv > SINE_TABLE_AMP)) {
+        abort();
+      }
+      
+      /* Store in table */
+      m_sine_table[x] = (int16_t) iv;
+    }
+    
+    /* Set table flag */
+    m_sine_table_init = 1;
+  }
+  
   /* Fix input parameter */
   if (!isfinite(w)) {
     w = 0.0;
   }
-  if (!(w >= 0.0)) {
-    w = 0.0;
-  } else if (!(w <= 1.0)) {
-    w = 1.0;
+  
+  /* Handle cases */
+  if (!(w > 0.0)) {
+    /* w is zero or less than zero, so result is zero */
+    sv = 0.0;
+    
+  } else if (!(w < 1.0)) {
+    /* w is one or greater than one, so result is zero */
+    sv = 0.0;
+  
+  } else {
+    /* w between zero and one, so general case -- begin by multiplying
+     * w by sine wave table sample count to get sample position */
+    w = w * ((double) SINE_TABLE_COUNT);
+    
+    /* Split w into integer and fractional parts */
+    r = modf(w, &base);
+    
+    /* Convert integer part to an integer offset */
+    x = (int32_t) base;
+    
+    /* Perform linear interpolation */
+    sv = (((double) m_sine_table[x]) * (1.0 - r)) + 
+          (((double) m_sine_table[x + 1]) * r);
+    
+    /* Scale by amplitude */
+    sv = sv / ((double) SINE_TABLE_AMP);
   }
   
-  /* Compute normalized sine */
-  return sin(w * 2.0 * M_PI);
+  /* Return result */
+  return sv;
 }
 
 /*
