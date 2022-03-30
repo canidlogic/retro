@@ -3,21 +3,18 @@
 
 /*
  * adsr.h
+ * ======
  * 
  * The ADSR (Attack-Decay-Sustain-Release) module of the Retro synth.
  * 
  * Compilation
- * ===========
+ * -----------
  * 
  * May require the math library to be included (-lm).
  */
 
-#include "retrodef.h"
-
-/*
- * The maximum value for ADSR time durations.
- */
-#define ADSR_MAXTIME (INT32_C(100000000))
+#include <stddef.h>
+#include <stdint.h>
 
 /*
  * Structure prototype for ADSR_OBJ.
@@ -33,37 +30,36 @@ typedef struct ADSR_OBJ_TAG ADSR_OBJ;
  * decrease the reference count.  The object is freed when the reference
  * count reaches zero.
  * 
- * The t_attack, t_decay, and t_release parameters are the times, in
- * milliseconds, of the attack, decay, and release periods.  They must
- * be finite and greater than or equal to zero.  If when they are
- * transformed into a sample count this value would exceed ADSR_MAXTIME,
- * the duration is shortened to ADSR_MAXTIME.
+ * The t_attack, t_decay, and t_release parameters are the number of
+ * samples that the attack, decay, and release phases last.  Each must
+ * be zero or greater.
  * 
- * sustain is the sustain level multiplier.  It must be finite and in
- * range [0.0, 1.0].  If it is 1.0, then t_decay is ignored and the
- * decay is set to zero.
+ * The t_limit is the number of samples it takes the sustain phase to
+ * fade to silence if it were never released, or zero if there is no
+ * fading during the sustain phase.  t_limit must be zero or greater.
  * 
- * rate is the sampling rate, in Hz.  It must be either RATE_CD or
- * RATE_DVD.
+ * The peak is the intensity multiplier of the peak during the attack,
+ * relative to the beginning of the sustain.  It may have any finite
+ * value that is greater than zero.
  * 
  * Parameters:
  * 
- *   t_attack - the attack duration, in milliseconds
+ *   t_attack - the attack duration, in samples
  * 
- *   t_decay - the decay duration, in milliseconds
+ *   t_decay - the decay duration, in samples
  * 
- *   sustain - the sustain level multiplier
+ *   t_release - the release duration, in samples
  * 
- *   t_release - the release duration, in milliseconds
+ *   t_limit - the sustain fade limit, in samples, or zero for no fade
  * 
- *   rate - the sampling rate, in Hz
+ *   peak - the intensity multiplier of the peak during the attack
  */
 ADSR_OBJ *adsr_alloc(
-    double       t_attack,
-    double       t_decay,
-    double       sustain,
-    double       t_release,
-    int32_t      rate);
+    int32_t t_attack,
+    int32_t t_decay,
+    int32_t t_release,
+    int32_t t_limit,
+    double  peak);
 
 /*
  * Add a reference to the given ADSR envelope object.
@@ -127,9 +123,9 @@ int32_t adsr_length(ADSR_OBJ *pa, int32_t dur);
  * 
  * dur is the duration of the event in samples.  It must be at least
  * one.  The duration of the event is not necessarily the same as the
- * duration of the envelope.
+ * duration of the envelope, so t may well be greater than dur.
  * 
- * The return value is a multiplier in range [0, MAX_FRAC].
+ * The return value is a computed multiplier value.
  * 
  * Parameters:
  * 
@@ -143,43 +139,6 @@ int32_t adsr_length(ADSR_OBJ *pa, int32_t dur);
  * 
  *   the ADSR multiplier
  */
-int32_t adsr_compute(ADSR_OBJ *pa, int32_t t, int32_t dur);
-
-/*
- * Transform a given sample according to an ADSR envelope.
- * 
- * t is the time offset in samples from the beginning of the envelope.
- * It must be zero or greater.
- * 
- * dur is the duration of the event in samples.  This is not necessarily
- * the same as the duration of the envelope.  It must be greater than
- * zero.
- * 
- * The ADSR envelope is defined for t in [0, (length - 1)], where length
- * is the return value of adsr_length() for dur.  Any t value greater
- * than this range will result in a sample value of zero.
- * 
- * s is the input sample to transform by the ADSR envelope.  The return
- * value is the transformed sample.
- * 
- * Parameters:
- * 
- *   pa - the ADSR object
- * 
- *   t - the time offset in samples from the start of the envelope
- * 
- *   dur - the duration of the event in samples
- * 
- *   s - the sample to transform
- * 
- * Return:
- * 
- *   the transformed sample
- */
-int16_t adsr_mul(
-    ADSR_OBJ * pa,
-    int32_t    t,
-    int32_t    dur,
-    int16_t    s);
+double adsr_compute(ADSR_OBJ *pa, int32_t t, int32_t dur);
 
 #endif
