@@ -30,28 +30,28 @@ struct ADSR_OBJ_TAG {
   int32_t refcount;
   
   /*
-   * The number of samples for the attack.
+   * The number of control units for the attack.
    * 
    * This is zero or greater.
    */
   int32_t attack;
   
   /*
-   * The number of samples for the decay.
+   * The number of control units for the decay.
    * 
    * This is zero or greater.
    */
   int32_t decay;
   
   /*
-   * The number of samples for the release.
+   * The number of control units for the release.
    * 
    * This is zero or greater.
    */
   int32_t release;
   
   /*
-   * The number of samples for the sustain fade limit.
+   * The number of control units for the sustain fade limit.
    * 
    * This is zero or greater.
    */
