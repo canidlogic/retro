@@ -31,11 +31,11 @@ typedef struct ADSR_OBJ_TAG ADSR_OBJ;
  * count reaches zero.
  * 
  * The t_attack, t_decay, and t_release parameters are the number of
- * samples that the attack, decay, and release phases last.  Each must
- * be zero or greater.
+ * control units that the attack, decay, and release phases last.  Each
+ * must be zero or greater.
  * 
- * The t_limit is the number of samples it takes the sustain phase to
- * fade to silence if it were never released, or zero if there is no
+ * The t_limit is the number of control units it takes the sustain phase
+ * to fade to silence if it were never released, or zero if there is no
  * fading during the sustain phase.  t_limit must be zero or greater.
  * 
  * The peak is the intensity multiplier of the peak during the attack,
@@ -44,13 +44,14 @@ typedef struct ADSR_OBJ_TAG ADSR_OBJ;
  * 
  * Parameters:
  * 
- *   t_attack - the attack duration, in samples
+ *   t_attack - the attack duration, in control units
  * 
- *   t_decay - the decay duration, in samples
+ *   t_decay - the decay duration, in control units
  * 
- *   t_release - the release duration, in samples
+ *   t_release - the release duration, in control units
  * 
- *   t_limit - the sustain fade limit, in samples, or zero for no fade
+ *   t_limit - the sustain fade limit, in control units, or zero for
+ *   no fade
  * 
  *   peak - the intensity multiplier of the peak during the attack
  */
@@ -92,8 +93,8 @@ void adsr_addref(ADSR_OBJ *pa);
 void adsr_release(ADSR_OBJ *pa);
 
 /*
- * Given an event duration in samples, get the ADSR envelope length in
- * samples.
+ * Given an event duration in control units, get the ADSR envelope
+ * length in control units.
  * 
  * The given duration must be greater than zero.  The return value will
  * also be greater than zero.
@@ -105,11 +106,11 @@ void adsr_release(ADSR_OBJ *pa);
  * 
  *   pa - the ADSR object
  * 
- *   dur - the duration of the event in samples
+ *   dur - the duration of the event in control units
  * 
  * Return:
  * 
- *   the duration of the envelope in samples for the event
+ *   the duration of the envelope in control units for the event
  */
 int32_t adsr_length(ADSR_OBJ *pa, int32_t dur);
 
@@ -118,12 +119,12 @@ int32_t adsr_length(ADSR_OBJ *pa, int32_t dur);
  * 
  * pa is the ADSR envelope.
  * 
- * t is the offset from the start of the envelope in samples.  It must
- * be zero or greater.
+ * t is the offset from the start of the envelope in control units.  It
+ * must be zero or greater.
  * 
- * dur is the duration of the event in samples.  It must be at least
- * one.  The duration of the event is not necessarily the same as the
- * duration of the envelope, so t may well be greater than dur.
+ * dur is the duration of the event in control units.  It must be at
+ * least one.  The duration of the event is not necessarily the same as
+ * the duration of the envelope, so t may well be greater than dur.
  * 
  * The return value is a computed multiplier value.
  * 
@@ -131,9 +132,9 @@ int32_t adsr_length(ADSR_OBJ *pa, int32_t dur);
  * 
  *   pa - the ADSR envelope
  * 
- *   t - the t offset
+ *   t - the t offset in control units
  * 
- *   dur - the duration
+ *   dur - the duration in control units
  * 
  * Return:
  * 
