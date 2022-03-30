@@ -3,20 +3,13 @@
 
 /*
  * graph.h
+ * =======
  * 
  * The graph module of the Retro synthesizer.
  */
 
-#include "retrodef.h"
-
-/*
- * The maximum number of elements in a graph.
- * 
- * (This is also limited by the maximum stack height in the main retro
- * module, since all elements must be defined on the stack in the input
- * file.)
- */
-#define GRAPH_MAXCOUNT (4096)
+#include <stddef.h>
+#include <stdint.h>
 
 /* 
  * GRAPH_OBJ structure prototype.
@@ -27,16 +20,23 @@ struct GRAPH_OBJ_TAG;
 typedef struct GRAPH_OBJ_TAG GRAPH_OBJ;
 
 /*
- * Create a new graph object with the given number of elements.
+ * Create a new graph object with the given capacity.
  * 
- * count must be in range [1, GRAPH_MAXCOUNT].
+ * count must be greater than zero.  In addition to any blocks that will
+ * be added, there must also be one additional element to serve as the
+ * terminator block.  Therefore, an empty graph will require a count of
+ * one, a graph with one block requires a count of two, etc.
+ * 
+ * Although this module can work with large count values, note that the
+ * algorithms and data structures are optimized for relatively small
+ * graphs (measured in block counts) and become inefficient for large
+ * counts of blocks.
  * 
  * The returned graph object has a reference count of one.  All
  * references should eventually be released with graph_release().
  * 
- * After allocation, each element in the graph is "undefined."  Each
- * element must be defined with graph_set() before the graph can be
- * used.
+ * After allocation, the graph will be an empty graph that returns zero
+ * for all times.
  * 
  * Parameters:
  * 
@@ -75,61 +75,68 @@ void graph_addref(GRAPH_OBJ *pg);
 void graph_release(GRAPH_OBJ *pg);
 
 /*
- * Set an element in the given graph object.
+ * Push a smooth block to the end of the given graph object.
  * 
- * When a graph object is first defined, each element within it is in an
- * undefined state.  Before the graph object can be used, each element
- * must be defined using this function.
+ * The graph must have sufficient capacity to add the new block or a
+ * fault occurs.
  * 
- * This function must be called in sequential order, beginning with the
- * first element of the graph and ending with the last element of the
- * graph.  Elements may only be set once.
+ * w is the width of the block in control units.  It must be greater
+ * than zero.
  * 
- * pg is the graph object and i is the zero-based index of the element.
- * 
- * t is the time offset for the element.  The time offset of the first
- * element must be zero.  The time offset of any element elements after
- * the first must be greater than that of the previous element.
- * 
- * ra is the intensity value of constant graph elements, and the
- * starting intensity of ramp graph elements.  rb is -1 for constant
- * graph elements, or the ending intensity of ramp graph elements.
- * 
- * Both ra and rb must be in range [0, MAX_FRAC] (except rb may be -1).
- * If ra is equal to rb, then the call is equivalent to having rb equal
- * to -1.
- * 
- * The last element must be a constant element.  It may not be a ramp.
+ * b is the output value at the last sample of the block.  It must be
+ * in range [-32767, 32767].  A smooth block connects smoothly with the
+ * value at the end of the previous block, or with a value of zero if
+ * this is the first block.
  * 
  * Parameters:
  * 
  *   pg - the graph object
  * 
- *   i - the index of the element to set
+ *   w - the width of the new block
  * 
- *   t - the time offset of the element
- * 
- *   ra - the starting intensity of the element
- * 
- *   rb - the ending intensity of the element, or -1
+ *   b - the last value in the new block
  */
-void graph_set(
-    GRAPH_OBJ * pg,
-    int32_t     i,
-    int32_t     t,
-    int32_t     ra,
-    int32_t     rb);
+void graph_pushSmooth(GRAPH_OBJ *pg, int32_t w, int32_t b);
+
+/*
+ * Push a rough block to the end of the given graph object.
+ * 
+ * The graph must have sufficient capacity to add the new block or a
+ * fault occurs.
+ * 
+ * w is the width of the block in control units.  It must be greater
+ * than zero.
+ * 
+ * a is the output value immediately before the start of the block,
+ * while b is the output value at the last sample of the block.  Both
+ * must be in range [-32767, 32767].  Rough blocks don't have any
+ * implicit connection to the previous block, so a discontinuity may
+ * occur at the start of the rough block.
+ * 
+ * Parameters:
+ * 
+ *   pg - the graph object
+ * 
+ *   w - the width of the new block
+ * 
+ *   a - the value immediately before the start of the new block
+ * 
+ *   b - the last value in the new block
+ */
+void graph_pushRough(GRAPH_OBJ *pg, int32_t w, int32_t a, int32_t b);
 
 /*
  * Get the graph value at a given t offset.
  * 
- * pg is the graph object.  All elements must have been defined already
- * using graph_set().
+ * t is the time offset.  It must be zero or greater.  If it goes beyond
+ * the end of the last defined block in the graph, the last output value
+ * of the last block is repeated.  If there are no defined blocks in the
+ * graph, zero is returned.
  * 
- * t is the time offset.  It must be zero or greater.
+ * Time units for graphs are control units.
  * 
  * The return value is the computed intensity at the time t.  It will be
- * in range [0, MAX_FRAC].
+ * in range [-32767, 32767].
  * 
  * Parameters:
  * 
