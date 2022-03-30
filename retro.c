@@ -26,6 +26,7 @@
 
 /* Retro modules */
 #include "adsr.h"
+#include "graph.h"
 
 /*
  * Local data
@@ -555,9 +556,8 @@ int main(int argc, char *argv[]) {
   
   int status = 1;
   /* @@TODO: */
-  ADSR_OBJ *pa = NULL;
+  GRAPH_OBJ *pg = NULL;
   int32_t x = 0;
-  int32_t l = 0;
   
   /* Set executable name */
   pModule = NULL;
@@ -580,10 +580,14 @@ int main(int argc, char *argv[]) {
     loadWAV();
     unmapWAV();
     
-    pa = adsr_alloc(10, 5, 5, 100, 2.0);
-    l = adsr_length(pa, 30);
-    for(x = 0; x < l; x++) {
-      printf("%f\n", adsr_compute(pa, x, 30));
+    pg = graph_alloc(5);
+    graph_pushRough(pg, 7, 10, 50);
+    graph_pushSmooth(pg, 15, -12);
+    graph_pushSmooth(pg, 5, -12);
+    graph_pushRough(pg, 10, 0, 5);
+    
+    for(x = 0; x < 40; x++) {
+      printf("%d\n", (int) graph_get(pg, x));
     }
   }
   
