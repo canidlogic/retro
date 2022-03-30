@@ -1,5 +1,6 @@
 /*
  * graph.c
+ * =======
  * 
  * Implementation of graph.h
  * 
@@ -16,38 +17,42 @@
  */
 
 /*
- * An element within the graph.
+ * A block element within the graph.
  */
 typedef struct {
   
   /*
-   * The time offset of this node.
+   * The width of this block and mode of the block.
    * 
-   * If this is -1, then the element is currently undefined.
+   * If this is zero, this block is the special termination node.
    * 
-   * Otherwise, the range is zero or greater.
+   * If this is greater than zero, this is a smooth block and this field
+   * is the width of the block.
+   * 
+   * If this is less than zero, this is a rough block and the absolute
+   * value of this field is the width of the block.
    */
-  int32_t t;
+  int32_t w;
   
   /*
-   * The starting intensity of this node.
+   * The graph value immediately before the start of this block.
    * 
-   * Only valid if the element is defined.
+   * Ignored except for rough blocks.
    * 
-   * The range is [0, MAX_FRAC].
+   * Valid range is [-32767, 32767].
    */
-  int16_t ra;
+  int16_t a;
   
   /*
-   * The ending intensity of this node, or -1 for a constant node.
+   * The graph value of the last position in this block.
    * 
-   * Only valid if the element is defined.
+   * Present except for the termination node.
    * 
-   * The range is [0, MAX_FRAC], or -1.
+   * Valid range is [-32767, 32767].
    */
-  int16_t rb;
+  int16_t b;
   
-} GRAPH_NODE;
+} GRAPH_BLOCK;
 
 /*
  * GRAPH_OBJ structure.
@@ -62,18 +67,25 @@ struct GRAPH_OBJ_TAG {
   int32_t refcount;
   
   /*
-   * The number of elements in this graph.
+   * The capacity of this graph.
    * 
    * Must be at least one.
    */
-  int32_t ecount;
+  int32_t cap;
   
   /*
-   * The array of graph nodes.
+   * The number of blocks that have been pushed onto this graph.
+   * 
+   * Must be zero or greater, and less than cap.
+   */
+  int32_t count;
+  
+  /*
+   * The array of graph blocks.
    * 
    * This extends beyond the end of the structure as necessary.
    */
-  GRAPH_NODE n[1];
+  GRAPH_BLOCK n[1];
 };
 
 /*
@@ -89,31 +101,39 @@ struct GRAPH_OBJ_TAG {
 GRAPH_OBJ *graph_alloc(int32_t count) {
   
   GRAPH_OBJ *pg = NULL;
-  GRAPH_NODE *pe = NULL;
-  int32_t x = 0;
+  int32_t sz = 0;
   
   /* Check parameter */
-  if ((count < 1) || (count > GRAPH_MAXCOUNT)) {
+  if (count < 1) {
+    abort();
+  }
+  
+  /* Compute size of the graph object, watching for overflow */
+  sz = count - 1;
+  
+  if (sz <= INT32_MAX / sizeof(GRAPH_BLOCK)) {
+    sz *= (int32_t) sizeof(GRAPH_BLOCK);
+  } else {
+    abort();
+  }
+  
+  if (sz <= INT32_MAX - sizeof(GRAPH_OBJ)) {
+    sz += (int32_t) sizeof(GRAPH_OBJ);
+  } else {
     abort();
   }
   
   /* Allocate graph, with room for extra elements */
-  pg = (GRAPH_OBJ *) malloc(sizeof(GRAPH_OBJ) +
-                            ((count - 1) * sizeof(GRAPH_NODE)));
+  pg = (GRAPH_OBJ *) malloc((size_t) sz);
   if (pg == NULL) {
     abort();
   }
-  memset(pg, 0, sizeof(GRAPH_OBJ) + ((count - 1) * sizeof(GRAPH_NODE)));
+  memset(pg, 0, (size_t) sz);
   
   /* Initialize the structure */
   pg->refcount = 1;
-  pg->ecount = count;
-  for(x = 0; x < count; x++) {
-    pe = &((pg->n)[x]);
-    pe->t = -1;
-    pe->ra = -1;
-    pe->rb = -1;
-  }
+  pg->cap = count;
+  pg->count = 0;
   
   /* Return the object */
   return pg;
@@ -155,71 +175,49 @@ void graph_release(GRAPH_OBJ *pg) {
 }
 
 /*
- * graph_set function.
+ * graph_pushSmooth function.
  */
-void graph_set(
-    GRAPH_OBJ * pg,
-    int32_t     i,
-    int32_t     t,
-    int32_t     ra,
-    int32_t     rb) {
-  
-  GRAPH_NODE *pe = NULL;
+void graph_pushSmooth(GRAPH_OBJ *pg, int32_t w, int32_t b) {
   
   /* Check parameters */
-  if (pg == NULL) {
-    abort();
-  }
-  if ((i < 0) || (i >= pg->ecount)) {
-    abort();
-  }
-  if (t < 0) {
-    abort();
-  }
-  if ((ra < 0) || (ra > MAX_FRAC)) {
-    abort();
-  }
-  if ((rb < -1) || (rb > MAX_FRAC)) {
+  if ((pg == NULL) || (w < 1) || (b < -32767) || (b > 32767)) {
     abort();
   }
   
-  /* If ra and rb are equal, change rb to -1 because then the "ramp" is
-   * actually constant */
-  if (ra == rb) {
-    rb = -1;
-  }
-  
-  /* The element indicated must currently be undefined */
-  if (((pg->n)[i]).t >= 0) {
-    abort();  /* element already defined */
-  }
-  
-  /* If this is not the first element, the previous element must be
-   * defined and its t value must be less than this t */
-  if (i > 0) {
-    if (((pg->n)[i - 1]).t < 0) {
-      abort();  /* previous element not defined */
-    }
-    if (((pg->n)[i - 1]).t >= t) {
-      abort();  /* previous element t value not less than this t */
-    }
-  }
-  
-  /* If this is the first element, t must be zero */
-  if ((i == 0) && (t != 0)) {
+  /* Check that we have room in graph */
+  if (pg->count >= pg->cap - 1) {
     abort();
   }
   
-  /* If this is the last element, it must be constant */
-  if ((i >= pg->ecount - 1) && (rb >= 0)) {
+  /* Store the smooth block */
+  ((pg->n)[pg->count]).w = w;
+  ((pg->n)[pg->count]).b = (int16_t) b;
+  
+  (pg->count)++;
+}
+
+/*
+ * graph_pushRough function.
+ */
+void graph_pushRough(GRAPH_OBJ *pg, int32_t w, int32_t a, int32_t b) {
+  
+  /* Check parameters */
+  if ((pg == NULL) || (w < 1) ||
+      (a < -32767) || (a > 32767) || (b < -32767) || (b > 32767)) {
     abort();
   }
   
-  /* Everything checks out, so set the element */
-  pe = &((pg->n)[i]);
-  pe->t = t;
-  pe->ra = (int16_t) ra;
-  pe->rb = (int16_t) rb;
+  /* Check that we have room in graph */
+  if (pg->count >= pg->cap - 1) {
+    abort();
+  }
+  
+  /* Store the rough block */
+  ((pg->n)[pg->count]).w = 0 - w;
+  ((pg->n)[pg->count]).a = (int16_t) a;
+  ((pg->n)[pg->count]).b = (int16_t) b;
+  
+  (pg->count)++;
 }
 
 /*
@@ -227,94 +225,118 @@ void graph_set(
  */
 int16_t graph_get(GRAPH_OBJ *pg, int32_t t) {
   
-  int32_t lo = 0;
-  int32_t hi = 0;
-  int32_t mid = 0;
-  int32_t midt = 0;
-  int32_t e_len = 0;
-  int32_t result = 0;
-  int32_t offset = 0;
-  GRAPH_NODE *pe = NULL;
+  const GRAPH_BLOCK *pe = NULL;
+  int32_t i = 0;
+  int32_t a = 0;
+  int32_t b = 0;
+  int32_t w = 0;
+  int64_t result = 0;
   
   /* Check parameters */
   if ((pg == NULL) || (t < 0)) {
     abort();
   }
   
-  /* Make sure all elements are defined */
-  if (((pg->n)[pg->ecount - 1]).t < 0) {
-    abort();
-  }
-  
-  /* We're looking for the element with the greatest t value that is
-   * less than or equal to t */
-  lo = 0;
-  hi = pg->ecount - 1;
-  while (lo < hi) {
-    
-    /* Figure out a midpoint that is greater than lo */
-    mid = lo + ((hi - lo) / 2);
-    if (mid <= lo) {
-      mid = lo + 1;
-    }
-    
-    /* Get midpoint t value */
-    midt = ((pg->n)[mid]).t;
-    
-    /* Compare t to midpoint t */
-    if (t > midt) {
-      /* t greater than midpoint, so set low bound to midpoint */
-      lo = mid;
+  /* Iterate through graph and find the block that this t value belongs
+   * to, or stop on the terminator block if t is beyond end of graph */
+  b = 0;
+  for(i = 0; i <= pg->count; i++) {
+    /* Get current block */
+    pe = &((pg->n)[i]);
+
+    /* Check width/mode of current block */
+    if (pe->w > 0) {
+      /* Smooth block, get width of block */
+      w = pe->w;
       
-    } else if (t < midt) {
-      /* t less than midpoint, so set high bound to one less than
-       * midpoint */
-      hi = mid - 1;
+    } else if (pe->w < 0) {
+      /* Rough block, get width of block */
+      w = 0 - pe->w;
       
-    } else if (t == midt) {
-      /* t equals midpoint, so zoom in on it */
-      lo = mid;
-      hi = mid;
+    } else if (pe->w == 0) {
+      /* Terminator block, so stop */
+      break;
       
     } else {
       /* Shouldn't happen */
       abort();
     }
-  }
-  
-  /* Get a pointer to the element t is within */
-  pe = &((pg->n)[lo]);
-  
-  /* If this element is a ramp, determine its length (there is a rule
-   * that the last element may not be a ramp, so we know there is a next
-   * element if there is a ramp) */
-  if (pe->rb >= 0) {
-    e_len = ((pg->n)[lo + 1]).t - pe->t;
-  }
-  
-  /* Compute the result */
-  if (pe->rb >= 0) {
-    /* We have a ramp, so determine offset within it */
-    offset = t - pe->t;
     
-    /* Interpolate result */
-    result = (int32_t) (((((int64_t) offset) *
-                          (((int64_t) pe->rb) - ((int64_t) pe->ra))) /
-                          ((int64_t) e_len)) +
-                            ((int64_t) pe->ra));
-    
-    /* Clamp result */
-    if (result < 0) {
-      result = 0;
-    } else if (result > MAX_FRAC) {
-      result = MAX_FRAC;
+    /* If we are inside current block, stop */
+    if ((t >= b) && (t - b < w)) {
+      break;
     }
     
-  } else {
-    /* We have a constant element, so just return the element value */
-    result = pe->ra;
+    /* Update base; in case of overflow, set to maximum int value */
+    if (b <= INT32_MAX - w) {
+      b += w;
+    } else {
+      b = INT32_MAX;
+    }
   }
   
-  /* Return result */
+  /* Get the block */
+  pe = &((pg->n)[i]);
+  
+  /* Compute based on kind of block */
+  if (pe->w == 0) {
+    /* Terminator block -- check if first block */
+    if (i < 1) {
+      /* First block, so result is zero */
+      a = 0;
+      b = 0;
+      i = 0;
+      w = 1;
+      
+    } else {
+      /* Not first block, so result is last sample in previous block */
+      a = ((pg->n)[i - 1]).b;
+      b = a;
+      i = 0;
+      w = 1;
+    }
+    
+  } else if (pe->w < 0) {
+    /* Inside a rough block, so get parameters from block */
+    i = t - b;
+    a = pe->a;
+    b = pe->b;
+    w = 0 - pe->w;
+  
+  } else if (pe->w > 0) {
+    /* Inside a smooth block, starting parameter is from previous block
+     * if exists, else zero */
+    if (i < 1) {
+      /* First block, so zero */
+      a = 0;
+    } else {
+      /* Not first block, so from last of previous */
+      a = ((pg->n)[i - 1]).b;
+    }
+    
+    /* Set other parameters */
+    i = t - b;
+    b = pe->b;
+    w = pe->w;
+    
+  } else {
+    /* Shouldn't happen */
+    abort();
+  }
+
+  /* Linearly interpolate result */
+  result = ((int64_t) a)
+            + (((((int64_t) b) - ((int64_t) a))
+                * (((int64_t) i) + 1)))
+              / ((int64_t) w);
+  
+  /* Clamp to range */
+  if (result < -32767) {
+    result = -32767;
+  } else if (result > 32767) {
+    result = 32767;
+  }
+  
+  /* Return casted result */
   return (int16_t) result;
 }
