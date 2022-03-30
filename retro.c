@@ -3,6 +3,13 @@
  * =======
  * 
  * The Retro synthesizer.
+ * 
+ * Compilation
+ * -----------
+ * 
+ * May require the math library to be included (-lm).
+ * 
+ * Requires the other retro modules to be compiled with it.
  */
 
 #include <stddef.h>
@@ -16,6 +23,9 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+/* Retro modules */
+#include "adsr.h"
 
 /*
  * Local data
@@ -544,6 +554,10 @@ static void unmapWAV(void) {
 int main(int argc, char *argv[]) {
   
   int status = 1;
+  /* @@TODO: */
+  ADSR_OBJ *pa = NULL;
+  int32_t x = 0;
+  int32_t l = 0;
   
   /* Set executable name */
   pModule = NULL;
@@ -565,6 +579,12 @@ int main(int argc, char *argv[]) {
     mapWAV("test/triwav_first.wav");
     loadWAV();
     unmapWAV();
+    
+    pa = adsr_alloc(10, 5, 5, 100, 2.0);
+    l = adsr_length(pa, 30);
+    for(x = 0; x < l; x++) {
+      printf("%f\n", adsr_compute(pa, x, 30));
+    }
   }
   
   /* Invert status and return */
