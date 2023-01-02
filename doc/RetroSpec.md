@@ -169,8 +169,27 @@ Retro synthesis scripts are in Shastina format.  See [libshastina](https://githu
 
 @@TODO:
 
-## Adlib output script
+## OPL2 output script
 
-This section describes the format of the hardware script file generated as output by Retro.
+This section describes the format of the hardware script file generated as output by Retro.  The hardware script file is intended to be used with software-emulated OPL2 devices rather than actual OPL2 hardware, as explained in the introduction of this specification.
 
-@@TODO:
+The hardware script file is a US-ASCII text file where line breaks may be either LF or CR+LF.  The script file is parsed line by line.  Trailing whitespace (tabs and spaces) is allowed on each line without any difference in meaning.  Leading whitespace is _not_ allowed.
+
+The first line of the hardware script file must be:
+
+    OPL2 [rate]
+
+The `[rate]` must be either `44100` or `48000`.  It specifies the sampling rate.
+
+Each following line must be blank, a comment, or an instruction.  Blank lines are empty or consist only of tabs and spaces.  Comment lines have an apostrophe `'` as their first character.  Both blank lines and comment lines are ignored.
+
+There are two types of instruction lines:
+
+    r [offset] [value]
+    w [count]
+
+The `r` instruction writes `[value]` into the OPL2 hardware register at offset `[offset]`.  Both `[value]` and `[offset]` must be exactly two base-16 digits.  Letter digits may be in either uppercase or lowercase (or both).  Zero padding is used for values that only require a single base-16 digit.
+
+The `w` instruction causes `[count]` samples to be generated and written to output, using the current state of the OPL2 hardware.
+
+At the start of interpretation, no assumptions are made about the initial state of the OPL2 hardware registers.
