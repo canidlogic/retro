@@ -256,6 +256,103 @@ This section describes the format of the script given to Retro for synthesis.
 
 Retro synthesis scripts are in Shastina format.  See [libshastina](https://github.com/canidlogic/libshastina) for a specification and a parsing library.
 
+### Data types
+
+Retro scripts use the following data types:
+
+1. Null
+2. Integer
+3. Atom
+4. Dictionary
+5. Instrument
+6. Graph
+
+The null type represents a special null value indicating "no data."
+
+Integer values are in range [-2147483647, 2147483647].
+
+Atoms are unique codes that represent each of the different parameter names.  Parameter names are given as string literals within the Retro script, but these string literals are immediately converted to unique atom codes.
+
+Dictionaries contain zero or more _mappings._  Each mapping maps an atom key to a value of any type, including another dictionary.  Each mapping must have a unique atom key within the dictionary.
+
+Instruments have a parent instrument reference, and three dictionary references representing parameter overrides for channel parameters, operator zero parameters, and operator one parameters.  All references may be null.  Null dictionary references are equivalent to a reference to an empty dictionary.
+
+Graphs use an abstract interface to allow for multiple graph object implementations.  Graph objects must indicate whether they are global or local graphs.  They must also provide a function that takes an integer time value `t` greater than or equal to zero and returns an integer parameter value in 17-bit unsigned integer range, along with another integer counting how many `t` values this parameter value will remain valid for (at least one, or the special value -1 if this is the sustain value that remains constant for all following `t` values).
+
+### Interpreter state
+
+The Retro interpreter has an interpreter stack, and a namespace for defined variables and constants.  Values stored on the stack and in the namespace may have any of the data types defined in the preceding section.  The stack and namespace are empty at the start of interpretation.  At the end of interpretation, the stack must be empty again.
+
+The Retro interpreter also has an _accumulator_ which is used for building up complex object definitions.  The accumulator is empty at the beginning of interpretation and must be empty at the end of interpretation.  Dictionaries and graphs can be constructed piece by piece in the accumulator and then the finished object is pushed from the accumulator onto the stack.  Only one complex object may be built in the accumulator at a time.
+
+### Interpreter output
+
+Running a Retro script generates a control rate setting in range [1 Hz, 1024 Hz], a set of events that are not necessarily chronologically ordered, and parameter dictionaries defining the rhythm section state.
+
+Retro will store all these interpretation results in memory.  When the script has finished running, Retro will sequence the events it was given and produce an OPL2 output script, the format of which is described in a later section.
+
+### Script header
+
+The header of a retro script file looks like the following:
+
+    %retro 1.0;
+    %rate 60;
+
+Specifically, the first Shastina entities read from the script must be:
+
+1. `BEGIN_META`
+2. `META_TOKEN` with value `retro`
+3. `META_TOKEN` with version number
+4. `END_META`
+5. `BEGIN_META`
+6. `META_TOKEN` with value `rate`
+7. `META_TOKEN` with control rate
+8. `END_META`
+
+Metatoken values are case sensitive.  The version number must be exactly `1.0` for parsers targeting this version of Retro.  It is intended so that future versions can support backwards compatibility.
+
+The control rate value is an unsigned decimal integer that must be in range [1, 1024].  It indicates the control rate in Hz.
+
+### Entity handling
+
+After the header, the rest of the Retro script supports all Shastina entity types except metacommands.
+
+String entities must be double-quoted and may not have any string prefix.  The quoted string must be a case-sensitive match for one of the OPL2 parameter names defined earlier.  The entity causes an atom representing that OPL2 parameter name to be pushed onto the interpreter stack.
+
+Numeric entities must be signed decimal integers in range [-2147483647, 2147483647].  The sequence of decimal digits is preceded by an optional sign `+` or `-`.  There is no difference between positive and negative zero.
+
+Variable, constant, assign, and get entities are used to declare, set, and get variable and constants.  Variable and constant entities declare variables and constants, popping the initial value off the top of the stack.  Assign entities set variable values, popping the new value off the top of the stack.  (Assigning to a constant is not allowed.)  Get entities push a copy of the current variable or constant value on top of the interpreter stack.  Variables and constants share a namespace, and must be declared before being used in assign and get entities.
+
+The names of variables and constants must be a sequence of ASCII alphanumerics and underscores with length [1, 32] where the first character is not a decimal digit.
+
+Shastina group and array entities are also supported.  The start of a Shastina group hides everything currently on the stack until the end of the group.  At the end of the group, exactly one element must be on top of the stack.  The rest of the stack is then restored.  Array entities push an integer with the array count on top of the stack.
+
+The supported Retro operations are described in the next section.
+
+### Retro script operations
+
+The syntax of Retro operations are specified with the name of the operation in the middle, the input arguments to the left of the operation, and the output results to the right of the operation.  If there are no input arguments, a hyphen is shown to the left of the operation, and if there are no output results, a hyphen is shown to the right of the operation.  Multiple arguments and results are ordered so that the rightmost argument or result is the top of the stack.
+
+    - null [a:null]
+
+The `null` operation pushes the special null value on top of the stack.
+
+    - end [result:dict|graph]
+
+The `end` operation is used to finish whichever dictionary or graph object is currently being constructed in the accumulator.  There must be something in the accumulator when this operation is issued.  The finished dictionary or graph will be pushed onto the interpreter stack and the accumulator will be cleared.
+
+                       - dict -
+    [key:atom] [val:any] m    -
+               [d:dict ] cp   -
+
+To create a new dictionary, use the `dict` operation.  The accumulator must be empty when this operation is used.  The dictionary in the accumulator starts out empty.  The `m` operation may only be used when a dictionary is in the accumulator.  It defines a new mapping from an atom key to a value of any type.  If a mapping already exists for the given atom key, it is replaced by the new atom.  The `cp` operation copies all mappings from a given dictionary into the dictionary in the accumulator.  It works as though the `m` operation were used with all mappings defined in the given dictionary.  When the dictionary in the accumulator has been completely defined, use the `end` operation to push the completed dictionary onto the interpreter stack and clear the accumulator.
+
+    [global:int] [sustain:int]                graph -
+    [n:int] [value:int]                       plane -
+    [n:int] [start:int] [goal:int] [step:int] ramp  -
+
+To create a new base graph, use the `graph` operation.  The accumulator must be empty when this operation is used.  `[global]` is 1 if this is a global graph, 0 if this is a local graph.  `[sustain]` is the sustain value for the graph.  Use `plane` to append a plane block of length `[n]` cycles with constant `[value]`.  Use `ramp` to append a ramp block of length `[n]` cycles with start value `[start]`, goal value `[goal]`, and step value `[step]`.  When the graph in the accumulator has been completely defined, use the `end` operation to push the completed graph onto the interpreter stack and clear the accumulator.
+
 @@TODO:
 
 ## OPL2 output script
