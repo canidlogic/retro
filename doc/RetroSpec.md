@@ -52,9 +52,11 @@ The value of each parameter is an integer.  For all parameters except the `F` pa
 
 The Retro synthesizer compiles a set of _events_ into a hardware script that plays those events back on emulated OPL2 hardware.  Each event is specified independently from all other events.
 
-Each event has an _offset_ and a _duration_ that determines when the event takes place.  The offset of an event is the time at which the event starts making sound.  The offset is measured as the number of cycles that have elapsed since the start of the performance.  This offset must be an integer value that is zero or greater.
+Each event has an _offset,_ a _reserved duration,_ and a _audible duration_ that determines when the event takes place.  The offset of an event is the time at which the event starts making sound.  The offset is measured as the number of cycles that have elapsed since the start of the performance.  This offset must be an integer value that is zero or greater.
 
-The duration of an event is the length in time of the event.  The duration is measured in cycles, and it must be an integer that is two or greater.  The event produces sound for all cycles except the last.  In the last cycle, the event is silent.  This one cycle of silence is necessary so that the OPL2 hardware can determine when to release the note.  The minimum duration of two has the event producing sound for one cycle and silence for one cycle.
+There are two different durations for each event:  a reserved duration and an audible duration.  Both durations are measured as an integer number of cycles.  The audible duration must be at least one, and the reserved duration must be greater than the audible duration.  (So, the reserved duration is always at least two.)
+
+Retro will tell the OPL2 that a melodic channel or percussion instrument is on only during the audible duration.  At the start of the reserved duration, Retro will tell the OPL2 to turn the melodic chanel or percussion instrument off.  Retro will then leave the melodic channel or percussion instrument off for the rest of the reserved duration.  This is necessary so that the OPL2 knows when notes end.  Having a reserved duration greater than one may be necessary to allow for the full release phase of the ADSR envelope, which takes place after the note has been released.
 
 There are two kinds of events:  _melodic events_ and _rhythm events._  Melodic events can be performed on any of the OPL2's channels.  Rhythm events can only be performed when rhythm mode is enabled.  Rhythm events use the special percussion instruments that are synthesized on a combination of channels 6, 7, and 8.
 
@@ -76,15 +78,17 @@ For instruments that have a non-null parent reference, the channel parameters, o
 
 Melodic events then inherit their channel, operator zero, and operator one parameters from the instrument they reference.  The individual melodic events only need to specify those parameters that need to be changed from their inherited values.
 
-In short, melodic events contain an offset and duration measured in cycles, an instrument reference, and three sets of parameter override values for channel parameters, operator zero parameters, and operator one parameters.  Each of the three sets may be empty, indicating that the inherited values should be used as-is.
+The parameter most frequently changed by individual melodic events is the channel frequency `F`.  Melodic events have a special property giving the `F` channel value for the event, or null reference to inherit this value.  Melodic events can therefore leave all three parameter sets empty if they only need to change `F` values.
+
+In short, melodic events contain an offset, reserved duration, and audible duration measured in cycles, an instrument reference, `F` value or null, and three sets of parameter override values for channel parameters, operator zero parameters, and operator one parameters.  Each of the three sets may be empty, indicating that the inherited values should be used as-is.  If the `F` value is defined in the channel parameter set, it is used only if the special `F` property of the melodic event is null.
 
 ### Rhythm events
 
-Rhythm events must specify which of the five percussion instruments they are performing:  bass drum, snare drum, tom-tom, cymbal, or hi-hat.  A rhythm event therefore contains an offset and duration measured in cycles, and a selection of one of the five percussion instruments.
+Rhythm events must specify which of the five percussion instruments they are performing:  bass drum, snare drum, tom-tom, cymbal, or hi-hat.  A rhythm event therefore contains an offset, reserved duration, and audible duration measured in cycles, and a selection of one of the five percussion instruments.
 
 Rhythm events do not include parameter values because of the way that the three special rhythm channels 6, 7, and 8 are interconnected.  Changing a single parameter value might affect more than one of the simulated percussion instruments.
 
-Instead, the channel parameter values for channels 6, 7, and 8, and the operator parameter values for each of the six operators within those three channels must be specified at the beginning of any Retro script that includes at least one rhythm event.  This combined state of the three channels and six operators is called the _rhythm section state._  The channel parameters in each channel and the operator parameters within each operator inherit from the same set of default parameter values defined for melodic events, so the rhythm section state only needs to specify changes from these inherited defaults.
+Instead, the channel parameter values for channels 6, 7, and 8, and the operator parameter values for each of the six operators within those three channels must be specified somewhere in any Retro script that includes at least one rhythm event.  This combined state of the three channels and six operators is called the _rhythm section state._  The channel parameters in each channel and the operator parameters within each operator inherit from the same set of default parameter values defined for melodic events, so the rhythm section state only needs to specify changes from these inherited defaults.
 
 Whenever at least one rhythm event is active, Retro will ensure that channels 6, 7, 8, and their operators are loaded with the rhythm section state.
 
@@ -112,9 +116,9 @@ A global graph is appropriate for effects that span multiple events over time.  
 
 A local graph is appropriate for effects localized to an individual event.  For example, a pitch bend at the start of a note can be modeled as a local graph for frequency.  The same pitch bend graph can be used for multiple events, and each event will then have its own, localized pitch bend.
 
-The graph function `f(t)` is defined by a sequence of _blocks_ and a _sustain value._  Each block has a length in cycles `n` that must be a finite value greater than zero.  The blocks define a finite subdomain of the function starting at `t` zero, with the start of the first block at `t` zero, and the start of each subsequent block immediately after the preceding block.  Therefore, the first block with length `n` defines the graph function for `t` in range `[0, n-1]`, the second block with length `m` defines the graph function for `t` in range `[n, n+m-1]`, and so forth.
+The graph function `f(t)` is defined by a sequence of _blocks,_ a _repeat offset,_ and a _repeat length._  Each block has a length in cycles `n` that must be a finite value greater than zero.  The blocks define a finite subdomain of the function starting at `t` zero, with the start of the first block at `t` zero, and the start of each subsequent block immediately after the preceding block.  Therefore, the first block with length `n` defines the graph function for `t` in range `[0, n-1]`, the second block with length `m` defines the graph function for `t` in range `[n, n+m-1]`, and so forth.
 
-The sustain value is a constant integer value that is returned for any `t` value that is outside the subdomain covered by the blocks.  It is possible to have a graph with no blocks, in which case the function returns the sustain value for all values `t`.  In this case, though, it would be more efficient to just use a constant parameter value rather than a graph object.
+The repeat offset is a `t` value that is within the subdomain of one of the blocks.  The repeat length `r` is an integer greater than zero, such that `(t + r - 1)` is also within the subdomain of one of the blocks.  (Not necessarily the same block as `t`.)  The finite `t` subdomain defined by the sequence of blocks is extended to positive infinity by looping values from `t` to `(t + r - 1)`.
 
 Retro supports two kinds of blocks:  _planes_ and _ramps._  A plane block simply returns a constant value throughout its subdomain.  A ramp block has different values at the start and end of the block, and uses linear interpolation within the block.
 
@@ -277,7 +281,7 @@ Dictionaries contain zero or more _mappings._  Each mapping maps an atom key to 
 
 Instruments have a parent instrument reference, and three dictionary references representing parameter overrides for channel parameters, operator zero parameters, and operator one parameters.  All references may be null.  Null dictionary references are equivalent to a reference to an empty dictionary.
 
-Graphs use an abstract interface to allow for multiple graph object implementations.  Graph objects must indicate whether they are global or local graphs.  They must also provide a function that takes an integer time value `t` greater than or equal to zero and returns an integer parameter value in 17-bit unsigned integer range, along with another integer counting how many `t` values this parameter value will remain valid for (at least one, or the special value -1 if this is the sustain value that remains constant for all following `t` values).
+Graphs use an abstract interface to allow for multiple graph object implementations.  Graph objects must indicate whether they are global or local graphs.  They must also provide a function that takes an integer time value `t` greater than or equal to zero and returns an integer parameter value in 17-bit unsigned integer range, along with another integer counting how many `t` values this parameter value will remain valid for (at least one, or the special value -1 if this value will be repeated infinitely for all following `t` values).
 
 ### Interpreter state
 
@@ -334,8 +338,9 @@ The supported Retro operations are described in the next section.
 The syntax of Retro operations are specified with the name of the operation in the middle, the input arguments to the left of the operation, and the output results to the right of the operation.  If there are no input arguments, a hyphen is shown to the left of the operation, and if there are no output results, a hyphen is shown to the right of the operation.  Multiple arguments and results are ordered so that the rightmost argument or result is the top of the stack.
 
     - null [a:null]
+    - x    [a:null]
 
-The `null` operation pushes the special null value on top of the stack.
+The `null` operation pushes the special null value on top of the stack.  The `x` operation is a shorthand and has the same meaning as `null`.
 
     - end [result:dict|graph]
 
@@ -347,13 +352,74 @@ The `end` operation is used to finish whichever dictionary or graph object is cu
 
 To create a new dictionary, use the `dict` operation.  The accumulator must be empty when this operation is used.  The dictionary in the accumulator starts out empty.  The `m` operation may only be used when a dictionary is in the accumulator.  It defines a new mapping from an atom key to a value of any type.  If a mapping already exists for the given atom key, it is replaced by the new atom.  The `cp` operation copies all mappings from a given dictionary into the dictionary in the accumulator.  It works as though the `m` operation were used with all mappings defined in the given dictionary.  When the dictionary in the accumulator has been completely defined, use the `end` operation to push the completed dictionary onto the interpreter stack and clear the accumulator.
 
-    [global:int] [sustain:int]                graph -
+    [local:int] [repeat_t:int] [repeat_r:int] graph -
     [n:int] [value:int]                       plane -
     [n:int] [start:int] [goal:int] [step:int] ramp  -
 
-To create a new base graph, use the `graph` operation.  The accumulator must be empty when this operation is used.  `[global]` is 1 if this is a global graph, 0 if this is a local graph.  `[sustain]` is the sustain value for the graph.  Use `plane` to append a plane block of length `[n]` cycles with constant `[value]`.  Use `ramp` to append a ramp block of length `[n]` cycles with start value `[start]`, goal value `[goal]`, and step value `[step]`.  When the graph in the accumulator has been completely defined, use the `end` operation to push the completed graph onto the interpreter stack and clear the accumulator.
+To create a new base graph, use the `graph` operation.  The accumulator must be empty when this operation is used.  `[local]` is 1 if this is a local graph, 0 if this is a global graph.  `[repeat_t]` and `[repeat_r]` are repeat offset and repeat length, respectively.  Use `plane` to append a plane block of length `[n]` cycles with constant `[value]`.  Use `ramp` to append a ramp block of length `[n]` cycles with start value `[start]`, goal value `[goal]`, and step value `[step]`.  When the graph in the accumulator has been completely defined, use the `end` operation to push the completed graph onto the interpreter stack and clear the accumulator.
 
-@@TODO:
+    [src:graph]
+    [s:int]
+    [d:int]
+    [p:int] [a:int] [b:int] gderive [g:graph]
+
+Use the `gderive` operation to create a derived graph.  Unlike the `graph` operation, `gderive` does not use the accumulator, instead generating the new graph in a single operation.  `[src]` is the graph that is being derived from.  The other parameters define how values are altered, as explained earlier in "Derived graphs".
+
+    [parent:instr|null]
+    [ch:dict|null] 
+    [op0:dict|null] [op1:dict|null] instr [i:instr]
+
+The `instr` operation defines an instrument.  The input arguments define the parent instrument and three dictionaries defining channel parameter overrides, operator 0 parameter overrides, and operator 1 parameter overrides.  Any or all of the arguments may be replaced by null values.  null values are equivalent to empty dictionaries.
+
+    [d:dict] [ch:integer]              rhythm_section_ch -
+    [d:dict] [ch:integer] [op:integer] rhythm_section_op -
+
+The `rhythm_section_ch` and `rhythm_section_op` operations define the channel and operator parameters used for channels 6, 7, and 8 when any rhythm events are active.  `[d]` is a dictionary of channel or operator parameter values.  The `rhythm_section_ch` operation only allows channel parameter keys in the dictionary, while the `rhythm_section_op` operation only allows operator parameter keys in the dictionary.  If graphs are used as parameter values, they must be global graphs.  `[ch]` selects a channel [6, 8] and `[op]` selects an operator [0, 1].
+
+At the start of the Retro script, the rhythm section parameters for channels 6, 7, 8, and their operators start out with the default channel and operator parameter values.  The `rhythm_section_ch` and `rhythm_section_op` operations modify this default state.  For each mapping in a passed dictionary, the given parameter and value pair overwrites what is currently defined.  When the first rhythm operation `r` is given, the state of the rhythm section is frozen and further invocations of `rhythm_section_ch` or `rhythm_section_op` after the first `r` operation will result in an error.  If there are no `r` operations in the script, the state of the rhythm section is ignored and irrelevant.
+
+    [offs:integer]
+    [reserved:int] [audible:int]
+    [i:instr]
+    [f:int|graph|null]
+    [ch:dict|null]
+    [op0:dict|null] [op1:dict|null] n -
+
+Create melodic events using the `n` operation.  `[offs]` is the offset of the start of the melodic event in cycles, `[reserved]` is the reserved duration of the event in cycles, and `[audible]` is the audible duration of the event in cycles.  `[i]` is the instrument.  `[f]` is the special property slots for `F` property overrides, or null.  `[ch]`, `[op0]` and `[op1]` are the parameter override dictionaries for channel parameters, operator zero parameters, and operator one parameters, with null being equivalent to an empty dictionary.
+
+Melodic events may be defined in any order.  They do not need to be chronological.
+
+    [offs:integer]
+    [reserved:int] [audible:int]
+    [p:int] r -
+
+Create rhythm events using the `r` operation.  `[offs]`, `[reserved]`, and `[audible]` are the same as for the `n` operation.  `[p]` selects one of the percussion instruments:
+
+     p | Instrument
+    ===+============
+     0 | Bass drum
+     1 | Snare drum
+     2 | Tom-tom
+     3 | Cymbal
+     4 | Hi-hat
+
+You will probably want to configure the rhythm section first using the `rhythm_section_ch` and `rhythm_section_op` operations before using `r`, since the rhythm section state is frozen when the first `r` operation is given.
+
+Rhythm events may be defined in any order.  They do not need to be chronological.
+
+@@TODO: BEGIN
+
+## Sequencing algorithm
+
+The first goal is to assign a channel to each melodic event.  To do this, get a list of melodic events sorted in ascending order of time offset, and a list of rhythmic events sorted in ascending order of time offset.  For each channel, store the last snapshot as all the byte values of relevant hardware registers for the channel and its operators, or have a null pointer for the snapshot if the channel has not been used yet.  For each channel, also store a t value at which point the channel becomes available again, or null value if channel has not been used yet.  For each channel, store the t value at which its last snapshot was taken, or null if no snapshot.
+
+Until we've gone through all melodic and rhythmic events, do the following.  If the next rhythmic event has a time offset less than the next melodic event, then update the snapshots on channels 6-8 and the snapshot t for the rhythm section state at the last sounding t of this rhythm event, but only if the last sounding t of this rhythm event is greater than the current snapshot t value in channels 6-8 (or there is no snapshot defined).  Also, update the t available to the next t after this rhythmic event, but only if the next t is greater than the currently defined next t for channels 6-8.  Then loop back.
+
+Otherwise, we process a melodic event.  Find the set of available channels.  These are channels that have an undefined available t value or an available t value less than or equal to the starting offset of the melodic event.  For channels 6-8, they are only available if this condition is satisfied AND the last t value of this melodic event is before the next rhythm event (if any).  If there are no available channels, then sequencing error.
+
+If there is more than one available channel, we compute the "cost" of each channel.  If an available channel has no defined snapshot, the cost is the total number of bytes in a snapshot.  Otherwise, compute the starting state of this melodic event as a byte snapshot and compare it to the byte snapshots of the available channels.  Each byte that is different between the two channels adds a unit of cost.  Choose the available channel with the lowest cost.  If multiple channels with lowest cost, choose the channel with the lowest index.  Update this melodic event with the chosen channel.  Then, update the channel's snapshot with the last t snapshot of this melodic event, the last t value for sounding, and the next available t value.  Then, loop back.
+
+@@TODO: END
 
 ## OPL2 output script
 
