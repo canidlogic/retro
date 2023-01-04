@@ -442,6 +442,10 @@ The `pseudo` operation changes the channel and operator parameters for one of th
 
 The only state of the pseudo-channels that matters is the state that is present when the first `r` operation is given.  (If no `r` operations are present in the script, the pseudo-channels are irrelevant.)  When the first `r` operation occurs, the state of the pseudo-channels is frozen, and any attempt to use `pseudo` after `r` will result in an error.  If you want a parameter value in a pseudo-channel to change over time, use a graph object.
 
+    [g:dict|null] global -
+
+The `global` operation changes the global parameters.  The `[g]` dictionary, if provided, may only use keys corresponding to global parameters.  The values may be integers, graph objects, or null, with null being equivalent to no record defined for that key.  Graph objects must be global graphs.  The only global state that matters is the state that is present at the end of the script.  If you want a global parameter value to change over time, use a graph object.
+
     [offs:integer]
     [reserved:int] [audible:int]
     [i:instr]
