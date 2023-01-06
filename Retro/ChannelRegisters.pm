@@ -19,9 +19,10 @@ Retro::ChannelRegisters - OPL2 channel register state representation.
   my $regs = Retro::ChannelRegisters->create;
   
   # Set channel registers according to an instrument resolved at a given
-  # absolute and local time (local may be undef) and a flag indicating
-  # the state of the key-down flag; returns the repeat count
-  my $repeat = $regs->set($instr, $abs_t, $local_t, $key_down);
+  # absolute and local time (local may be undef), a flag indicating the
+  # state of the key-down flag, and an optional F parameter override;
+  # returns the repeat count
+  my $repeat = $regs->set($instr, $abs_t, $local_t, $key_down, $f);
   
   # Compute the cost of going from a given register state to this one
   my $other_regs = Retro::ChannelRegisters->create;
@@ -48,8 +49,9 @@ OPL2 channel.
 After construction, each channel hardware register tracked by this
 object will be set to zero.  Use the C<set()> function to compute all
 the correct hardware register settings, given a C<Retro::Instrument>
-object, the time to resolve that instrument at, and the setting of the
-key-down flag.
+object, the time to resolve that instrument at, the setting of the
+key-down flag, and optionally an C<F> parameter override from the
+melodic event.
 
 In order to decide which channel an event should be assigned to, it
 makes sense to use the channel which requires the fewest register writes
@@ -255,7 +257,7 @@ sub create {
 
 =over 4
 
-=item B<set(instr, abs_t, local_t, key_down)>
+=item B<set(instr, abs_t, local_t, key_down, f)>
 
 Set the complete state of channel hardware registers.  Returns the
 repeat value for this instrument state (not including the key-down
@@ -276,11 +278,17 @@ C<key_down> is 1 if the key-down flag should be set, 0 if it should not
 be set.  This is the only bit of channel state not determined by the
 instrument.
 
+C<f> is an C<F> parameter override, or C<undef> if there is no override.
+If defined, then after the instrument is solved at the given time, the
+C<F> channel value in the solution will be replaced by this C<F>
+parameter.  If defined, this value must pass C<rtIsInteger()> and be in
+the valid range for the C<F> channel parameter.
+
 =cut
 
 sub set {
   # Get self and parameters
-  ($#_ == 4) or die;
+  ($#_ == 5) or die;
   
   my $self = shift;
   (ref($self) and $self->isa(__PACKAGE__)) or die;
@@ -304,9 +312,21 @@ sub set {
     $key_down = 0;
   }
   
+  my $f_over = shift;
+  if (defined $f_over) {
+    rtIsInteger($f_over) or die;
+    (($f_over >= 0) and ($f_over <= 117824)) or die;
+  }
+  
   # Resolve the instrument to get the parameter values
   my ($ch, $op0, $op1, $r) = $instr->solve($abs_t, $loc_t);
   my @ops = ($op0, $op1);
+  
+  # If the F override is defined, change the resolved F value in the
+  # channel parameters
+  if (defined $f_over) {
+    $ch->{'F'} = $f_over;
+  }
   
   # Define value variable
   my $val = 0;
