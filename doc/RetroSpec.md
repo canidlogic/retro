@@ -42,7 +42,7 @@ Retro organizes OPL2 hardware state into the following categories:
 4. Note control
 5. Drum control
 
-**Global parameters** are those parts of hardware state that affect the whole OPL2 and whose effects apply to multiple events.  There are two global parameters controlling the depth of amplitude and frequency vibrato used by all operators.  There are also two global parameters controlling composite sine wave mode and the keyboard split point, both of which are poorly documented features that no one seems to know how to use.
+**Global parameters** are those parts of hardware state that affect the whole OPL2 and whose effects apply to all events.  There are two global parameters controlling the depth of amplitude and frequency vibrato used by all operators.  There are also two global parameters controlling composite sine wave mode and the keyboard split point, both of which are poorly documented features that no one seems to know how to use.
 
 **Channel parameters** are those parts of hardware state that affect one whole _channel_ of the OPL2 and whose effects apply to multiple events.  OPL2 has nine channels, which Retro always numbers in range [0, 8].  (Be careful: some OPL2 documentation sources number the channels [1, 9].)
 
@@ -50,7 +50,7 @@ Retro organizes OPL2 hardware state into the following categories:
 
 **Note control** are those parts of hardware state that affect one whole channel but whose effects only apply to a single event.  Note control merely consists of a single flag in each channel that indicates whether a melodic note is currently in key-down state within that channel or not.
 
-**Drum control** are those parts of hardware state that affect the whole OPL2 but whose effects only apply to a single event.  Drum control consists of a flag indicating whether the OPL2 is in _rhythm mode,_ and five flags indicating which combination of percussion instruments is currently active.  The OPL2 supports the following five percussion instruments:
+**Drum control** are those parts of hardware state that control the special _rhythm mode_ of the OPL2.  Drum control consists of a flag indicating whether the OPL2 is in rhythm mode, and five flags indicating which combination of percussion instruments is currently active.  The OPL2 supports the following five percussion instruments:
 
 1. Bass drum
 2. Snare drum
@@ -118,11 +118,9 @@ For instruments that have a null parent reference, all channel and operator para
 
 For instruments that have a non-null parent reference, the channel parameters and the operator parameters for each operator are inherited from the parent instrument.  The instrument then need only defined those parameters that differ from the inherited values.
 
-Melodic events inherit their channel, operator zero, and operator one parameters from the instrument they reference.  Individual melodic events only need to specify those parameters that are different from the inherited values.
+Melodic events inherit their channel, operator zero, and operator one parameters from the instrument they reference.  Melodic events also have two properties that allow them to optionally change the `F` channel parameter and/or `amp` operator parameter(s).  The effect is as though a new instrument were derived from the event's instrument, the `F` channel parameter in this new instrument is set to the event's `F` value (if defined), the operator one `amp` parameter in this new instrument is set to the event's `amp` value (if defined), and possibly operator zero also has its `amp` parameter set the same way.  If the resolved parameter value of the channel `Network` setting at the start of the melodic event is zero, then additive synthesis is in effect and any `amp` value defined in the event sets both of the operator's `amp` parameters.  Otherwise, if `Network` is one at the start of the melodic event, then FM synthesis is in effect and only operator one (the one directly producing sound) has its `amp` parameter set.
 
-The parameter most frequently changed by individual melodic events is the channel frequency `F`.  Melodic events therefore have a special property for the `F` channel parameter, which may be left undefined if it should be inherited from the instrument.  This special property is an optimization, so that in the frequent case that a melodic event only needs to change the `F` channel parameter, it can just use this special property and leave all of the parameter sets within the event undefined.
-
-In short, melodic events contain an offset, reserved duration, and audible duration measured in cycles, an instrument reference, an `F` value or null, and three sets of parameter values for channel parameters, operator zero parameters, and operator one parameters.  Channel and operator parameter values are inherited from the instrument, then modified by the three parameter value sets, and finally modified by the `F` value.
+The `F` and `amp` parameters in melodic events are not technically necessary because you could just define a new instrument for the event.  However, they can drastically reduce the number of instruments that need to be defined by handling the most frequent cases of altered parameters.
 
 Each melodic event also implies that the key-down flag for whichever channel it is assigned to should be turned on at the start of the event, left on for the audible duration, and turned off for the remaining reserved duration.
 
@@ -355,7 +353,7 @@ The Retro interpreter also has an _accumulator_ which is used for building up co
 
 ### Interpreter output
 
-Running a Retro script generates a control rate setting in range [1 Hz, 1024 Hz], a set of events that are not necessarily chronologically ordered, and parameter dictionaries defining the rhythm section state.
+Running a Retro script generates a control rate setting in range [1 Hz, 1024 Hz], a set of events that are not necessarily chronologically ordered, the values of the global parameters, and instruments assigned to pseudo-channels.
 
 Retro will store all these interpretation results in memory.  When the script has finished running, Retro will sequence the events it was given and produce an OPL2 output script, the format of which is described in a later section.
 
@@ -397,6 +395,12 @@ Shastina group and array entities are also supported.  The start of a Shastina g
 
 The supported Retro operations are described in the next section.
 
+Finally, after the header, Retro supports the following metacommand:
+
+    %include "path/to/include.inc";
+
+The parameter must be a quoted string with no string prefix.  This specifies the path to an include file.  The effect is as if the indicated include file were copied into the source script at this location.  Includes can be recursive, though there is a limit of the depth of include recursion.
+
 ### Retro script operations
 
 The syntax of Retro operations are specified with the name of the operation in the middle, the input arguments to the left of the operation, and the output results to the right of the operation.  If there are no input arguments, a hyphen is shown to the left of the operation, and if there are no output results, a hyphen is shown to the right of the operation.  Multiple arguments and results are ordered so that the rightmost argument or result is the top of the stack.
@@ -434,11 +438,9 @@ Use the `gderive` operation to create a derived graph.  Unlike the `graph` opera
 
 The `instr` operation defines an instrument.  The input arguments define the parent instrument and three dictionaries defining channel parameter overrides, operator 0 parameter overrides, and operator 1 parameter overrides.  Any or all of the arguments may be replaced by null values.  null values are equivalent to empty dictionaries.  The `[ch]` dictionary may only have keys referring to channel parameters, and the `[op0]` and `[op1]` dictionaries may only have keys referring to operator parameters.  Dictionary values may either be integers, graphs, or null values.  Graphs may be either local or global.  Null values are equivalent to the dictionary lacking the key.
 
-    [ch:dict|null]
-    [op0:dict|null] [op1:dict|null]
-    [ci:integer] pseudo -
+    [r0:instr|null] [r1:instr|null] [r2:instr|null] pseudo -
 
-The `pseudo` operation changes the channel and operator parameters for one of the pseudo-channels R0, R1, or R2.  The pseudo-channels are initialized with channel and operator parameter default values at the start of the script.  The `[ch]`, `[op0]`, and `[op1]` input arguments work the same way as they do for the `instr` operator, except that graphs may only be used as values if they are global graphs.  `[ci]` must be an integer in range [0, 2] that selects which of the pseudo-channels to set.  The `pseudo` operation updates the parameters that are contained within the dictionaries and leaves the other parameters at their current values.
+The `pseudo` operation sets the instruments stored in the pseudo-channels R0, R1, and R2.  Passing a null value for a channel means that all channel and operator parameters in that channel should have their default values.  The passed instruments may not use any local graphs.  The pseudo-channels are initialized to null at the start of the script.
 
 The only state of the pseudo-channels that matters is the state that is present when the first `r` operation is given.  (If no `r` operations are present in the script, the pseudo-channels are irrelevant.)  When the first `r` operation occurs, the state of the pseudo-channels is frozen, and any attempt to use `pseudo` after `r` will result in an error.  If you want a parameter value in a pseudo-channel to change over time, use a graph object.
 
@@ -449,11 +451,10 @@ The `global` operation changes the global parameters.  The `[g]` dictionary, if 
     [offs:integer]
     [reserved:int] [audible:int]
     [i:instr]
-    [f:int|graph|null]
-    [ch:dict|null]
-    [op0:dict|null] [op1:dict|null] n -
+    [f:int|null]
+    [amp:int|null] n -
 
-Create melodic events using the `n` operation.  `[offs]` is the offset of the start of the melodic event in cycles, `[reserved]` is the reserved duration of the event in cycles, and `[audible]` is the audible duration of the event in cycles.  `[i]` is the instrument.  `[f]` is the `F` property value for the event, or null to inherit this value.  `[ch]`, `[op0]` and `[op1]` are the parameter override dictionaries for channel parameters, operator zero parameters, and operator one parameters, with null being equivalent to an empty dictionary.  Melodic events may be defined in any order.  They do not need to be chronological.
+Create melodic events using the `n` operation.  `[offs]` is the offset of the start of the melodic event in cycles, `[reserved]` is the reserved duration of the event in cycles, and `[audible]` is the audible duration of the event in cycles.  `[i]` is the instrument.  `[f]` is the `F` property value for the event, or null to let the instrument determine this value.  `[amp]` is the `amp` property for the event, or null to let the instrument determine the operator amplitude(s).  (See the earlier section "Melodic events" for further information.  Melodic events may be defined in any order.  They do not need to be chronological.
 
     [offs:integer]
     [reserved:int] [audible:int]
