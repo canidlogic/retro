@@ -13,17 +13,15 @@ Retro::ChannelRegisters - OPL2 channel register state representation.
 =head1 SYNOPSIS
 
   use Retro::ChannelRegisters;
-  use Retro::ChannelState;
   use Retro::Assembler;
   
   # Create a new ChannelRegisters instance with everything zero
   my $regs = Retro::ChannelRegisters->create;
   
-  # Set channel registers according to a given ChannelState and a flag
-  # indicating the state of the key-down flag
-  my $cs = Retro::ChannelState->create;
-  my $key_down = 1;
-  $regs->set($cs, $key_down);
+  # Set channel registers according to an instrument resolved at a given
+  # absolute and local time (local may be undef) and a flag indicating
+  # the state of the key-down flag; returns the repeat count
+  my $repeat = $regs->set($instr, $abs_t, $local_t, $key_down);
   
   # Compute the cost of going from a given register state to this one
   my $other_regs = Retro::ChannelRegisters->create;
@@ -49,8 +47,9 @@ OPL2 channel.
 
 After construction, each channel hardware register tracked by this
 object will be set to zero.  Use the C<set()> function to compute all
-the correct hardware register settings, given a C<Retro::ChannelState>
-object and the setting of the key-down flag.
+the correct hardware register settings, given a C<Retro::Instrument>
+object, the time to resolve that instrument at, and the setting of the
+key-down flag.
 
 In order to decide which channel an event should be assigned to, it
 makes sense to use the channel which requires the fewest register writes
@@ -256,27 +255,46 @@ sub create {
 
 =over 4
 
-=item B<set(cs, key_down)>
+=item B<set(instr, abs_t, local_t, key_down)>
 
-Set the complete state of channel hardware registers.
+Set the complete state of channel hardware registers.  Returns the
+repeat value for this instrument state (not including the key-down
+flag).  See the C<set()> function of C<Retro::Instrument> for the
+definition of a repeat value.
 
-C<cs> is a C<Retro::ChannelState> object that defines the whole channel
-state, except for the key-down flag.
+C<instr> is a C<Retro::Instrument> that will determine the settings of
+the hardware registers.
+
+C<abs_t> and C<local_t> are used to resolve the instrument to a specific
+set of parameter values.  Both must pass C<rtIsInteger()> from
+C<Retro::Util> and be greater than zero.  C<local_t> may be C<undef> if
+there is no concept of local time in the current context, but in this
+case the instrument may not have any local graphs.  See
+C<Retro::Instrument> for further information.
 
 C<key_down> is 1 if the key-down flag should be set, 0 if it should not
-be set.
+be set.  This is the only bit of channel state not determined by the
+instrument.
 
 =cut
 
 sub set {
   # Get self and parameters
-  ($#_ == 2) or die;
+  ($#_ == 4) or die;
   
   my $self = shift;
   (ref($self) and $self->isa(__PACKAGE__)) or die;
   
-  my $cs = shift;
-  (ref($cs) and $cs->isa('Retro::ChannelState')) or die;
+  my $instr = shift;
+  (ref($instr) and $instr->isa('Retro::Instrument')) or die;
+  
+  my $abs_t = shift;
+  (rtIsInteger($abs_t) and ($abs_t >= 0))  or die;
+  
+  my $loc_t = shift;
+  if (defined $loc_t) {
+    (rtIsInteger($loc_t) and ($loc_t >= 0)) or die;
+  }
   
   my $key_down = shift;
   (not ref($key_down)) or die;
@@ -285,6 +303,10 @@ sub set {
   } else {
     $key_down = 0;
   }
+  
+  # Resolve the instrument to get the parameter values
+  my ($ch, $op0, $op1, $r) = $instr->solve($abs_t, $loc_t);
+  my @ops = ($op0, $op1);
   
   # Define value variable
   my $val = 0;
@@ -295,27 +317,27 @@ sub set {
     $val = 0;
     
     # Bit 7 is set for amplitude vibrato enabled
-    if ($cs->op($op, 'amod')) {
+    if ($ops[$op]->{'amod'}) {
       $val |= 0x80;
     }
     
     # Bit 6 is set for frequency vibrato enabled
-    if ($cs->op($op, 'fmod')) {
+    if ($ops[$op]->{'fmod'}) {
       $val |= 0x40;
     }
     
     # Bit 5 is set for sustain enable
-    if ($cs->op($op, 'suse')) {
+    if ($ops[$op]->{'suse'}) {
       $val |= 0x20;
     }
     
     # Bit 4 is set for envelope scaling
-    if ($cs->op($op, 'escale')) {
+    if ($ops[$op]->{'escale'}) {
       $val |= 0x10;
     }
     
     # Bits 3-0 encode the frequency scaling value
-    $val |= $FSCALE_MAP[$cs->op($op, 'fscale')];
+    $val |= $FSCALE_MAP[$ops[$op]->{'fscale'}];
     
     # Store the register
     $self->{'_st'}->[0 + $op] = $val;
@@ -327,10 +349,10 @@ sub set {
     $val = 0;
     
     # Bits 7-6 are the register scaling value
-    $val |= (($cs->op($op, 'rscale') << 6);
+    $val |= ($ops[$op]->{'rscale'} << 6);
     
     # Bits 5-0 are the amplitude level
-    $val |= $cs->op($op, 'amp');
+    $val |= $ops[$op]->{'amp'};
     
     # Store the register
     $self->{'_st'}->[2 + $op] = $val;
@@ -342,10 +364,10 @@ sub set {
     $val = 0;
     
     # Bits 7-4 are the attack rate (inverted in hardware register)
-    $val |= ((15 - $cs->op($op, 'attack')) << 4);
+    $val |= ((15 - $ops[$op]->{'attack'}) << 4);
     
     # Bits 3-0 are the decay rate (inverted in hardware register)
-    $val |= (15 - $cs->op($op, 'decay'));
+    $val |= (15 - $ops[$op]->{'decay'});
     
     # Store the register
     $self->{'_st'}->[4 + $op] = $val;
@@ -357,10 +379,10 @@ sub set {
     $val = 0;
     
     # Bits 7-4 are the sustain level (inverted in hardware register)
-    $val |= ((15 - $cs->op($op, 'sustain')) << 4);
+    $val |= ((15 - $ops[$op]->{'sustain'}) << 4);
     
     # Bits 3-0 are the decay rate (inverted in hardware register)
-    $val |= (15 - $cs->op($op, 'decay'));
+    $val |= (15 - $ops[$op]->{'decay'});
     
     # Store the register
     $self->{'_st'}->[6 + $op] = $val;
@@ -372,14 +394,14 @@ sub set {
     $val = 0;
     
     # Bits 1-0 are the waveform
-    $val |= $cs->op($op, 'wave');
+    $val |= $ops[$op]->{'wave'};
     
     # Store the register
     $self->{'_st'}->[8 + $op] = $val;
   }
   
   # Get the f-num and block of the frequency
-  my ($f_num, $block) = encode_freq($cs->ch('F'));
+  my ($f_num, $block) = encode_freq($ch->{'F'});
   
   # Index ten is channel register bank 0xa0-0xa8, the eight least
   # significant bits of the f_num
@@ -407,18 +429,145 @@ sub set {
   $val = 0;
   
   # ... Bits 3-1 is the feedback strength
-  $val |= ($cs->ch('Feedback') << 1);
+  $val |= ($ch->{'Feedback'} << 1);
   
   # ... Bit 0 is inverse of the network style
-  unless ($cs->ch('Network')) {
+  unless ($ch->{'Network'}) {
     $val |= 0x1;
   }
   
   # ... Write the register value
   $self->{'_st'}->[12] = $val;
+  
+  # Return the repeat count
+  return $r;
 }
 
-# @@TODO:
+=item B<cost(regs)>
+
+Compute the cost of changing from C<regs> to this state.
+
+C<regs> is either a C<ChannelRegisters> instance or C<undef>.  If
+C<undef>, this function assumes that the channel state is undefined and
+every register has to be set.
+
+If C<regs> is defined, then this function computes how many register
+writes would have to be performed to get from the state in C<regs> to
+the state in this object.
+
+The return value is an integer in range [0, 13].  The higher the return
+value, the more register writes that would need to be performed.
+
+=cut
+
+sub cost {
+  # Get self and parameters
+  ($#_ == 1) or die;
+  
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or die;
+  
+  my $regs = shift;
+  if (defined $regs) {
+    (ref($regs) and $regs->isa(__PACKAGE__)) or die;
+  }
+  
+  # If undef value passed, then just return the length of our register
+  # state
+  unless (defined $regs) {
+    return scalar(@{$self->{'_st'}});
+  }
+  
+  # Otherwise, compare the two states and count the differences
+  my $result = 0;
+  for(my $i = 0; $i < scalar(@{$self->{'_st'}}); $i++) {
+    if ($self->{'_st'}->[$i] != $regs->{'_st'}->[$i]) {
+      $result++;
+    }
+  }
+  
+  # Return result
+  return $result;
+}
+
+=item B<assemble(asm, t, ch, regs)>
+
+Schedule the hardware register writes necessary to get to this channel
+register state.
+
+C<asm> is a C<Retro::Assembler> instance that the scheduled register
+writes will be sent to.
+
+C<t> is the time at which all these register writes will be scheduled.
+This must pass C<rtIsInteger()> from C<Retro::Util> and it must be zero
+or greater.
+
+C<ch> is the channel to set this state for.  It must pass
+C<rtIsInteger()> and it must be in range [0, 8].
+
+C<regs> is either a C<ChannelRegisters> instance that stores the current
+state of the hardware registers for channel C<ch> moving into time C<t>,
+or it is C<undef> if the current state of the hardware registers is
+undefined.
+
+Hardware register writes will only be scheduled for registers where the
+state is different between C<regs> and this object.  If C<regs> is
+undef, then all registers will be written.
+
+=cut
+
+sub assemble {
+  # Get self and parameters
+  ($#_ == 4) or die;
+  
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or die;
+  
+  my $asm = shift;
+  (ref($asm) and $asm->isa('Retro::Assembler')) or die;
+  
+  my $t = shift;
+  rtIsInteger($t) or die;
+  ($t >= 0) or die;
+  
+  my $ch = shift;
+  rtIsInteger($ch) or die;
+  (($ch >= 0) and ($ch <= 8)) or die;
+  
+  my $regs = shift;
+  if (defined $regs) {
+    (ref($regs) and $regs->isa(__PACKAGE__)) or die;
+  }
+  
+  # Schedule necessary writes
+  for(my $i = 0; $i < scalar(@{$self->{'_st'}}); $i++) {
+    # Update flag starts clear
+    my $update = 0;
+    
+    # If regs is defined, update depends on whether regs value matches
+    # this value; if regs is undefined, update is always set
+    if (defined $regs) {
+      if ($self->{'_st'}->[$i] != $regs->{'_st'}->[$i]) {
+        $update = 1;
+      }
+      
+    } else {
+      $update = 1;
+    }
+    
+    # If update flag is set, then schedule a write
+    if ($update) {
+      if ($i < 10) {
+        # For first 10 registers, we are setting an operator
+        $asm->reg(
+          $t, $REG_OFFS[$i] + $OP_OFFS[$ch], $self->{'_st'}->[$i]);
+      } else {
+        # After first 10 registers, we are setting a channel
+        $asm->reg($t, $REG_OFFS[$i] + $ch, $self->{'_st'}->[$i]);
+      }
+    }
+  }
+}
 
 =back
 
