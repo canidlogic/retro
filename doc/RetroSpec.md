@@ -68,9 +68,9 @@ When default values are referred to in subsequent sections of this specification
 
 The hardware state at each point in time must be **consistent,** or the behavior of the OPL2 hardware will be undefined.  For the state to be consistent, each state component must have a value that is within the valid range and the following consistency rules must be upheld:
 
-**Consistency Rule #1:** When any of the percussion instrument flags are active in drum control state, the rhythm mode flag in drum control state must be set.
+- **Consistency Rule #1:** When any of the percussion instrument flags are active in drum control state, the rhythm mode flag in drum control state must be set.
 
-**Consistency Rule #2:** When the rhythm mode flag in drum control state is set, the key-down flags for channels 6, 7, and 8 in note control state must all be clear.
+- **Consistency Rule #2:** When the rhythm mode flag in drum control state is set, the key-down flags for channels 6, 7, and 8 in note control state must all be clear.
 
 The reason for the consistency rules is that the OPL2 does not have separate hardware for the percussion instruments.  Instead, the percussion instruments use channels 6, 7, and 8 reconfigured in a special, interconnected way.  The rhythm mode flag sets channels 6, 7, and 8 into this special percussion arrangement and must therefore always be active when the percussion instruments are in use (Consistency Rule #1).  Also, channels 6, 7, and 8 can not be used for melodic notes while they are configured in rhythm mode (Consistency Rule #2).
 
@@ -90,13 +90,13 @@ In short, the pseudo-channels R0, R1, and R2 represent the state of channels 6, 
 
 Retro gives each global parameter, channel parameter, and operator parameter an ASCII name.  Parameter names always have a length in range [1, 8] and only contain alphabetic letters and underscores.  Global parameter names always have an underscore as their first character.  Channel parameter names always have an uppercase letter for their first character and any following characters are lowercase.  Operator parameter names are always entirely in lowercase.
 
-The value of each parameter is an integer or a _graph._  For all parameters except the `F` parameter, the full range of allowed integer values is a subset of the range [0, 63].  The `F` parameter exceptionally has an integer range of [0, 117824].
+The value of each parameter is an integer or a **graph.**  For all parameters except the `F` parameter, the full range of allowed integer values is a subset of the range [0, 63].  The `F` parameter exceptionally has an integer range of [0, 117824].
 
 Graphs are used for parameter values that change over time.  Graphs are basically functions that take a time point as input and produce an integer parameter value as output.  The details of how graphs work are described in a later section.
 
 ## Events
 
-The Retro synthesizer compiles a set of _events_ into a hardware script that plays those events back on emulated OPL2 hardware.  Each event is specified independently from all other events.
+The Retro synthesizer compiles a set of **events** into a hardware script that plays those events back on emulated OPL2 hardware.  Each event is specified independently from all other events.
 
 Each event has an _offset,_ a _reserved duration,_ and an _audible duration_ that determines when the event takes place.  The offset of an event is the time at which the event starts making sound.  The offset is measured as the number of cycles that have elapsed since the start of the performance.  This offset must be an integer value that is zero or greater.
 
@@ -118,41 +118,41 @@ For instruments that have a null parent reference, all channel and operator para
 
 For instruments that have a non-null parent reference, the channel parameters and the operator parameters for each operator are inherited from the parent instrument.  The instrument then need only defined those parameters that differ from the inherited values.
 
-Melodic events inherit their channel, operator zero, and operator one parameters from the instrument they reference.  Melodic events also have two properties that allow them to optionally change the `F` channel parameter and/or `amp` operator parameter(s).  The effect is as though a new instrument were derived from the event's instrument, the `F` channel parameter in this new instrument is set to the event's `F` value (if defined), the operator one `amp` parameter in this new instrument is set to the event's `amp` value (if defined), and possibly operator zero also has its `amp` parameter set the same way.  If the resolved parameter value of the channel `Network` setting at the start of the melodic event is zero, then additive synthesis is in effect and any `amp` value defined in the event sets both of the operator's `amp` parameters.  Otherwise, if `Network` is one at the start of the melodic event, then FM synthesis is in effect and only operator one (the one directly producing sound) has its `amp` parameter set.
+Melodic events inherit their channel, operator zero, and operator one parameters from the instrument they reference.  Melodic events also have a property that allows them to optionally change the `F` channel parameter.  The effect is as though a new instrument were derived from the event's instrument and the `F` channel parameter in this new instrument is set to the event's `F` value (if defined).
 
-The `F` and `amp` parameters in melodic events are not technically necessary because you could just define a new instrument for the event.  However, they can drastically reduce the number of instruments that need to be defined by handling the most frequent cases of altered parameters.
+The `F` property in melodic events is not technically necessary because you could just define a new instrument for the event.  However, the property drastically reduces the number of instruments that need to be defined since in most compositions the `F` parameter changes very frequently and has many possible values.
 
-Each melodic event also implies that the key-down flag for whichever channel it is assigned to should be turned on at the start of the event, left on for the audible duration, and turned off for the remaining reserved duration.
+Each melodic event implies that the key-down flag for whichever channel it is assigned to should be turned on at the start of the event, left on for the audible duration, and turned off for the remaining reserved duration.
 
 ### Rhythm events
 
 Rhythm events must select one of the five percussion instruments: bass drum, snare drum, tom-tom, cymbal, or hi-hat.  A rhythm event therefore contains an offset, reserved duration, and audible duration measured in cycles, and a selection of one of the five percussion instruments.
 
-Each rhythm event also implies that the rhythm mode flag should be turned on for the whole reserved duration of the event, and that the selected percussion instrument flag should be turned on at the start of the event, kept on through the audible duration of the event, and turned off for the remaining reserved duration.
+Each rhythm event implies that the rhythm mode flag should be turned on for the whole reserved duration of the event, and that the selected percussion instrument flag should be turned on at the start of the event, kept on through the audible duration of the event, and turned off for the remaining reserved duration.
 
 Rhythm events do not include parameter values.  Instead, the pseudo-channels R0, R1, and R2 determine the channel and operator settings that are used for channels 6, 7, and 8 while the rhythm mode flag is set.
 
 ## Event scheduling
 
-OPL2 hardware has a limited number of channels, so there can only be a certain number of events happening simultaneously.  For purposes of determining whether two events are simultaneous, the reserved duration is included.  That is, two events may overlap and be considered simultaneous even if they are not producing sound at the same time.
+OPL2 hardware has a limited number of channels, so there can only be a certain number of events happening simultaneously.  For purposes of determining whether two events are simultaneous, the whole reserved duration is included.  That is, two events may overlap and be considered simultaneous even if they are not producing sound at the same time.
 
 The following limits apply to scheduling simultaneous events:
 
-**Scheduling Rule #1:**  There can be at most nine simultaneous melodic events.
+- **Scheduling Rule #1:**  There can be at most nine simultaneous melodic events.
 
-**Scheduling Rule #2:**  There can be at most six melodic events simultaneous with a rhythm event.
+- **Scheduling Rule #2:**  There can be at most six melodic events simultaneous with a rhythm event.
 
-**Scheduling Rule #3:**  No two rhythm events for the same percussion instrument may be simultaneous.  However, rhythm events for different percussion instruments may be simultaneous in any combination.
+- **Scheduling Rule #3:**  No two rhythm events for the same percussion instrument may be simultaneous.  However, rhythm events for different percussion instruments may be simultaneous in any combination.
 
 If the scheduling rules are not obeyed, Retro will always fail with an error.  For example, there is no way to have ten simultaneous melodic events on the OPL2 because there are only nine channels.
 
-However, even if all the scheduling rules are obeyed, Retro may still sometimes fail with an error due to scheduling.  This happens in certain edge cases where seven or more melodic events are simultaneous shortly before rhythm mode is activated.  If there is a lot of complex overlap between the seven or more melodic events, then Retro may not be able to figure out how to assign these events to channels such that channels 6, 7, and 8 are free when rhythm mode is activated, which would violate Consistency Rule #2.
+However, even if all the scheduling rules are obeyed, Retro may still sometimes fail with an error due to scheduling.  This happens in certain edge cases where seven or more melodic events are simultaneous shortly before rhythm mode is activated.  If there is a lot of complex overlap between the seven or more melodic events, then Retro may not be able to figure out how to assign these events to channels such that channels 6, 7, and 8 are free when rhythm mode is activated.
 
 To avoid these edge cases in scheduling, avoid having more than six melodic events leading up to the start of a rhythm block.  If you include a _synchronization point_ before the rhythm block starts, and you do not use more than six melodic voices after the synchronization point until the start of the rhythm block, then it is guaranteed there will be no scheduling error.  A synchronization point is a cycle _t_ such that every melodic event that overlaps _t_ is on the last cycle of its reserved duration at _t_.  A cycle _t_ which no melodic events overlap also qualifies as a synchronization point.
 
 ## Graphs
 
-Global, channel, and operator parameter values may either be integer values or _graphs._  A graph allows the value of a parameter to change over time.  The same graph object may be shared across multiple parameter.
+Global, channel, and operator parameter values may either be integer values or **graphs.**  A graph allows the value of a parameter to change over time.  The same graph object may be shared across multiple parameter.
 
 There are two kinds of graphs:  **base graphs** and **derived graphs.**  Base graphs are a complete, standalone definition of a graph.  Derived graphs reference another graph and are identical to the referenced graph, except each graph value produced by the referenced graph is adjusted as it passes through the derived graph.
 
@@ -160,7 +160,7 @@ There are two kinds of graphs:  **base graphs** and **derived graphs.**  Base gr
 
 Base graphs describe a function `f(t)` that takes a time offset `t` as input and produces an integer parameter value `v` as output.  The input value `t` must be an integer that is greater than or equal to zero.  The output value `v` is an integer in 17-bit unsigned integer range [0, 131072].
 
-Base graphs are either _global_ or _local._  In a global graph, `t` value zero corresponds to the start of the performance.  In a local graph, `t` value zero corresponds to the start of the current melodic event.  Instruments and melodic events may use both global and local graphs for their channel and operator parameter values.  Global parameter values may only use global graphs, and channel and operator parameter values for the pseudo-channels R0, R1, and R2 may only use global graphs.
+Base graphs are either _global_ or _local._  In a global graph, `t` value zero corresponds to the start of the performance.  In a local graph, `t` value zero corresponds to the start of the current melodic event.  Global parameter values and instruments used in the pseudo-channels R0, R1, and R2 may only use global graphs, since there is no concept of a melodic event in that context and consequently no local time value.
 
 A global graph is appropriate for effects that span multiple events over time.  For example, a long crescendo can be modeled as a global graph for amplitude.  Each individual event would then have its amplitude value synchronized with all the other events participating in the crescendo effect.
 
@@ -168,7 +168,9 @@ A local graph is appropriate for effects localized to an individual event.  For 
 
 The graph function `f(t)` is defined by a sequence of **blocks,** a **repeat offset,** and a **repeat length.**  Each block has a length in cycles `n` that must be a finite value greater than zero.  The blocks define a finite subdomain of the function starting at `t` zero, with the start of the first block at `t` zero, and the start of each subsequent block immediately after the preceding block.  Therefore, the first block with length `n` defines the graph function for `t` in range `[0, n-1]`, the second block with length `m` defines the graph function for `t` in range `[n, n+m-1]`, and so forth.
 
-The repeat offset is a `t` value that is within the subdomain of one of the blocks.  The repeat length `r` is an integer greater than zero, such that `(t + r - 1)` is also within the subdomain of one of the blocks.  (Not necessarily the same block as `t`.)  The finite `t` subdomain defined by the sequence of blocks is extended to positive infinity by looping values from `t` to `(t + r - 1)`.
+The repeat offset is a `t` value that is within the subdomain of one of the blocks.  The repeat length `r` is an integer greater than zero, such that `(t + r - 1)` is also within the subdomain of one of the blocks.  (Not necessarily the same block that `t` is within.)  The finite `t` subdomain defined by the sequence of blocks is extended to positive infinity by looping values from `t` to `(t + r - 1)`.
+
+Loops allow effects such as trills to be compactly graphed as a single repetition, with the repeat information then extending this single repetition as many times as is needed.
 
 Retro supports two kinds of blocks:  **planes** and **ramps.**  A plane block simply returns a constant value throughout its subdomain.  A ramp block has different values at the start and end of the block, and uses linear interpolation within the block.
 
@@ -381,7 +383,7 @@ The control rate value is an unsigned decimal integer that must be in range [1, 
 
 ### Entity handling
 
-After the header, the rest of the Retro script supports all Shastina entity types except metacommands.
+After the header, the rest of the Retro script supports all Shastina entity types.
 
 String entities must be double-quoted and may not have any string prefix.  The quoted string must be a case-sensitive match for one of the OPL2 parameter names defined earlier.  The entity causes an atom representing that OPL2 parameter name to be pushed onto the interpreter stack.
 
@@ -436,7 +438,7 @@ Use the `gderive` operation to create a derived graph.  Unlike the `graph` opera
     [ch:dict|null] 
     [op0:dict|null] [op1:dict|null] instr [i:instr]
 
-The `instr` operation defines an instrument.  The input arguments define the parent instrument and three dictionaries defining channel parameter overrides, operator 0 parameter overrides, and operator 1 parameter overrides.  Any or all of the arguments may be replaced by null values.  null values are equivalent to empty dictionaries.  The `[ch]` dictionary may only have keys referring to channel parameters, and the `[op0]` and `[op1]` dictionaries may only have keys referring to operator parameters.  Dictionary values may either be integers, graphs, or null values.  Graphs may be either local or global.  Null values are equivalent to the dictionary lacking the key.
+The `instr` operation defines an instrument.  The input arguments define the parent instrument and three dictionaries defining channel parameter overrides, operator 0 parameter overrides, and operator 1 parameter overrides.  Any or all of the arguments may be replaced by null values.  Null values are equivalent to empty dictionaries.  The `[ch]` dictionary may only have keys referring to channel parameters, and the `[op0]` and `[op1]` dictionaries may only have keys referring to operator parameters.  Dictionary values may either be integers, graphs, or null values.  Graphs may be either local or global.  Null values are equivalent to the dictionary lacking the key.
 
     [r0:instr|null] [r1:instr|null] [r2:instr|null] pseudo -
 
@@ -451,10 +453,9 @@ The `global` operation changes the global parameters.  The `[g]` dictionary, if 
     [offs:integer]
     [reserved:int] [audible:int]
     [i:instr]
-    [f:int|null]
-    [amp:int|null] n -
+    [f:int|null] n -
 
-Create melodic events using the `n` operation.  `[offs]` is the offset of the start of the melodic event in cycles, `[reserved]` is the reserved duration of the event in cycles, and `[audible]` is the audible duration of the event in cycles.  `[i]` is the instrument.  `[f]` is the `F` property value for the event, or null to let the instrument determine this value.  `[amp]` is the `amp` property for the event, or null to let the instrument determine the operator amplitude(s).  (See the earlier section "Melodic events" for further information.  Melodic events may be defined in any order.  They do not need to be chronological.
+Create melodic events using the `n` operation.  `[offs]` is the offset of the start of the melodic event in cycles, `[reserved]` is the reserved duration of the event in cycles, and `[audible]` is the audible duration of the event in cycles.  `[i]` is the instrument.  `[f]` is the `F` property value for the event, or null to let the instrument determine this value.  Melodic events may be defined in any order.  They do not need to be chronological.
 
     [offs:integer]
     [reserved:int] [audible:int]
