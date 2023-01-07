@@ -18,6 +18,9 @@ Retro::ChannelRegisters - OPL2 channel register state representation.
   # Create a new ChannelRegisters instance with everything zero
   my $regs = Retro::ChannelRegisters->create;
   
+  # Copy state from a given ChannelRegisters object into this one
+  $regs->copy($other_regs);
+  
   # Set channel registers according to an instrument resolved at a given
   # absolute and local time (local may be undef), a flag indicating the
   # state of the key-down flag, and an optional F parameter override;
@@ -256,6 +259,28 @@ sub create {
 =head1 PUBLIC INSTANCE METHODS
 
 =over 4
+
+=item B<copy(regs)>
+
+Copy the state of the passed ChannelRegisters object into this object.
+
+=cut
+
+sub copy {
+  # Get self and parameters
+  ($#_ == 1) or die;
+  
+  my $self = shift;
+  (ref($self) and $self->isa(__PACKAGE__)) or die;
+  
+  my $regs = shift;
+  (ref($regs) and $regs->isa(__PACKAGE__)) or die;
+  
+  # Perform copy
+  for(my $i = 0; $i < scalar(@{$self->{'_st'}}); $i++) {
+    $self->{'_st'}->[$i] = $regs->{'_st'}->[$i];
+  }
+}
 
 =item B<set(instr, abs_t, local_t, key_down, f)>
 
