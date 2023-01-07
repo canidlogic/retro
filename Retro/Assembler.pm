@@ -113,7 +113,7 @@ sub _order_writes {
   }
   
   # Write all registers except 01, 08, B0-B8, and BD here
-  for my $k (keys $reg_map) {
+  for my $k (keys %$reg_map) {
     # Skip keys with special ordering rules
     if (defined $ORDERED_REGISTERS{$k}) {
       next;
