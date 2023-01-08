@@ -4,6 +4,8 @@ The Retro synthesizer is based on OPL2 hardware.  OPL2 was the most common hardw
 
 Retro does not actually generate the synthesized sound samples.  Instead, Retro generates a hardware script file that indicates which values need to be written to which OPL2 hardware registers at what time.  Executing the hardware script against OPL2 hardware will cause the hardware to synthesize the sound.  You can also run the hardware script against various available OPL2 software emulators and directly capture the synthesized digital samples without any OPL2 hardware required.
 
+The [Retro-OPL](https://github.com/canidlogic/retro-opl) project provides a software-emulated OPL2 that can turn hardware scripts produced by Retro into WAV files.
+
 ## Sampling and control rates
 
 The **sampling rate** is the constant rate at which digital sound samples are played back.  Actual OPL2 hardware uses a sampling rate of approximately 49,716 samples per second.  For the most part, however, the OPL2 sampling rate is an internal hardware detail and not visible to software programs.  Software programs change the hardware registers of the OPL2, and the changes to the hardware registers immediately affect the sound the OPL2 produces.  The digital samples produced by the OPL2 hardware are sent directly to a Digital to Analog Converter (DAC) and there is no way for the software to read the digital samples produced by the OPL2.
@@ -383,7 +385,7 @@ The control rate value is an unsigned decimal integer that must be in range [1, 
 
 ### Entity handling
 
-After the header, the rest of the Retro script supports all Shastina entity types.
+After the header, the rest of the Retro script supports all Shastina entity types except for additional metacommands.
 
 String entities must be double-quoted and may not have any string prefix.  The quoted string must be a case-sensitive match for one of the OPL2 parameter names defined earlier.  The entity causes an atom representing that OPL2 parameter name to be pushed onto the interpreter stack.
 
@@ -396,12 +398,6 @@ The names of variables and constants must be a sequence of ASCII alphanumerics a
 Shastina group and array entities are also supported.  The start of a Shastina group hides everything currently on the stack until the end of the group.  At the end of the group, exactly one element must be on top of the stack.  The rest of the stack is then restored.  Array entities push an integer with the array count on top of the stack.
 
 The supported Retro operations are described in the next section.
-
-Finally, after the header, Retro supports the following metacommand:
-
-    %include "path/to/include.inc";
-
-The parameter must be a quoted string with no string prefix.  This specifies the path to an include file.  The effect is as if the indicated include file were copied into the source script at this location.  Includes can be recursive, though there is a limit of the depth of include recursion.
 
 ### Retro script operations
 
