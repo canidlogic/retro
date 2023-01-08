@@ -395,8 +395,8 @@ sub build {
     # Process all the sorted register write instructions
     for my $rec (@wlist) {
       # Unpack this record
-      my $offs = int($rec / 65535);
-      my $lo   = $rec % 65535;
+      my $offs = int($rec / 65536);
+      my $lo   = $rec % 65536;
       
       my $addr = $lo >>   8;
       my $val  = $lo & 0xff;
