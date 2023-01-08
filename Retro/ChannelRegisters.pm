@@ -396,8 +396,8 @@ sub set {
     # Bits 7-6 are the register scaling value
     $val |= ($ops[$op]->{'rscale'} << 6);
     
-    # Bits 5-0 are the amplitude level
-    $val |= $ops[$op]->{'amp'};
+    # Bits 5-0 are the amplitude level (inverted in hardware register)
+    $val |= (63 - $ops[$op]->{'amp'});
     
     # Store the register
     $self->{'_st'}->[2 + $op] = $val;
